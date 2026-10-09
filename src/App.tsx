@@ -3,8 +3,6 @@ import {
   Briefcase, 
   Settings, 
   Search, 
-  Plus, 
-  Trash2, 
   ExternalLink,
   CheckCircle2,
   X,
@@ -13,7 +11,6 @@ import {
   MapPin,
   Clock,
   Building2,
-  Filter as FilterIcon,
   PanelLeftClose,
   PanelLeft,
   LayoutGrid,
@@ -35,12 +32,11 @@ import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Filter, Job, MonitorStatus } from './types';
+import type { Job, MonitorStatus } from './types';
 import { JobDetailsModal } from './components/JobDetailsModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'jobs' | 'filters' | 'history' | 'settings'>('jobs');
-  const [filters, setFilters] = useState<Filter[]>([]);
+  const [activeTab, setActiveTab] = useState<'jobs' | 'history' | 'settings'>('jobs');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
@@ -70,7 +66,6 @@ export default function App() {
 
   const [showDismissed, setShowDismissed] = useState(false);
   const [historySubTab, setHistorySubTab] = useState<'favorites' | 'applied'>('favorites');
-  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -94,13 +89,6 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Form states para criação de filtro
-  const [keyword, setKeyword] = useState('');
-  const [location, setLocation] = useState('');
-  const [modality, setModality] = useState('Qualquer');
-  const [contractType, setContractType] = useState('Todos');
-  const [timeWindow, setTimeWindow] = useState('30d');
-
   // Sincronizar localStorage
   useEffect(() => {
     localStorage.setItem('vagafounder_favorites', JSON.stringify(favorites));
@@ -119,9 +107,6 @@ export default function App() {
     async function init() {
       setIsLoading(true);
       try {
-        const savedFilters = await invoke<Filter[]>('get_filters');
-        setFilters(savedFilters);
-
         try {
           const status = await invoke<MonitorStatus>('get_status');
           setMonitorStatus(status);
@@ -133,7 +118,7 @@ export default function App() {
         if (cached && cached.length > 0) {
           setJobs(cached);
         } else {
-          const fetchedJobs = await invoke<Job[]>('scan_now');
+          const fetchedJobs = await invoke<Job[]>('scan_now', { keyword: null });
           setJobs(fetchedJobs);
         }
       } catch (err) {
@@ -170,19 +155,35 @@ export default function App() {
     }, 4000);
   };
 
-  // Recarregar vagas manualmente via Rust
-  const handleRefresh = async () => {
+  // Buscar vagas na Web (Rust backend)
+  const handleSearchWeb = async (customKw?: string) => {
+    const term = (customKw !== undefined ? customKw : searchQuery).trim();
     setIsLoading(true);
     try {
-      const res = await invoke<Job[]>('scan_now');
-      setJobs(res);
-      showToast(`Varredura concluída! ${res.length} vagas encontradas.`);
+      showToast(term ? `Buscando "${term}" no Gupy, LinkedIn e Indeed...` : 'Varrendo vagas em tempo real...');
+      const res = await invoke<Job[]>('scan_now', { keyword: term || null });
+      if (res && res.length > 0) {
+        setJobs(res);
+        showToast(term ? `${res.length} vagas encontradas para "${term}"!` : `Varredura concluída! ${res.length} vagas.`);
+      } else {
+        showToast('Nenhuma nova vaga encontrada nesta busca.');
+      }
     } catch (err) {
-      console.error('Erro ao atualizar vagas:', err);
-      showToast('Erro ao atualizar vagas.');
+      console.error('Erro na busca de vagas:', err);
+      showToast('Erro ao consultar vagas.');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSearchSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    handleSearchWeb(searchQuery);
+  };
+
+  // Recarregar vagas
+  const handleRefresh = () => {
+    handleSearchWeb('');
   };
 
   // Alternar pausa no monitoramento
@@ -231,61 +232,6 @@ export default function App() {
   const handleCloseDetails = () => {
     setIsDetailsModalOpen(false);
     setSelectedJob(null);
-  };
-
-  // Salvar novo filtro
-  const handleSaveFilter = async () => {
-    if (!keyword.trim() && !location.trim()) return;
-
-    let finalLocation = location.trim();
-    if (modality === 'Apenas Remoto') {
-      finalLocation = 'Remoto';
-    } else if (modality === 'Presencial' && finalLocation) {
-      finalLocation = `${finalLocation} (Presencial)`;
-    } else if (modality === 'Híbrido' && finalLocation) {
-      finalLocation = `${finalLocation} (Híbrido)`;
-    }
-
-    const newFilter: Filter = {
-      id: Date.now().toString(),
-      keyword: keyword.trim() || 'Vagas em Geral',
-      location: finalLocation || 'Recife (até 80 km)',
-      type: contractType,
-      timeWindow,
-      active: true,
-    };
-
-    try {
-      const updated = await invoke<Filter[]>('save_filter', { filter: newFilter });
-      setFilters(updated);
-      setIsFilterModalOpen(false);
-
-      setKeyword('');
-      setLocation('');
-      setModality('Qualquer');
-      setContractType('Todos');
-      setTimeWindow('30d');
-
-      setIsLoading(true);
-      const res = await invoke<Job[]>('scan_now');
-      setJobs(res);
-      showToast(`Filtro "${newFilter.keyword}" salvo!`);
-    } catch (err) {
-      console.error('Erro ao salvar filtro:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Remover filtro
-  const handleDeleteFilter = async (id: string) => {
-    try {
-      const updated = await invoke<Filter[]>('delete_filter', { id });
-      setFilters(updated);
-      showToast('Filtro removido.');
-    } catch (err) {
-      console.error('Erro ao remover filtro:', err);
-    }
   };
 
   // Favoritar / Desfavoritar vaga
@@ -419,7 +365,8 @@ export default function App() {
         matchesCity = locLower.includes('recife') || locLower.includes('jaboat') || locLower.includes('olinda') || 
           locLower.includes('paulista') || locLower.includes('camaragibe') || locLower.includes('cabo') || 
           locLower.includes('ipojuca') || locLower.includes('igarassu') || locLower.includes('moreno') || 
-          locLower.includes('goiana') || locLower.includes('vitoria') || locLower.includes('pernambuco');
+          locLower.includes('goiana') || locLower.includes('vitoria') || locLower.includes('pernambuco') ||
+          locLower.includes('remot');
       } else if (selectedCityFilter === 'REMOTO') {
         matchesCity = locLower.includes('remoto');
       } else if (selectedCityFilter === 'PRESENCIAL') {
@@ -576,23 +523,7 @@ export default function App() {
               )}
             </button>
 
-            <button 
-              onClick={() => setActiveTab('filters')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 cursor-pointer ${
-                activeTab === 'filters' 
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' 
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-              title="Filtros de Monitoramento"
-            >
-              <FilterIcon size={18} className="shrink-0" />
-              {!isSidebarCollapsed && <span>Filtros Ativos</span>}
-              {!isSidebarCollapsed && (
-                <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-semibold border border-slate-700">
-                  {filters.length}
-                </span>
-              )}
-            </button>
+
 
             <button 
               onClick={() => setActiveTab('history')}
@@ -668,7 +599,7 @@ export default function App() {
               <span>Dashboard</span>
               <span>/</span>
               <span className="text-slate-900 font-semibold capitalize">
-                {activeTab === 'jobs' ? 'Vagas Recentes' : activeTab === 'filters' ? 'Filtros' : activeTab === 'history' ? 'Minhas Vagas' : 'Configurações'}
+                {activeTab === 'jobs' ? 'Vagas Recentes' : activeTab === 'history' ? 'Minhas Vagas' : 'Configurações'}
               </span>
               <span className="text-slate-300">•</span>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold border border-indigo-200/70 shadow-2xs">
@@ -749,31 +680,43 @@ export default function App() {
           </div>
         </header>
 
-        {/* ---------------- BARRA DE FILTROS MINIMALISTA EM LINHA ÚNICA ---------------- */}
+        {/* ---------------- BARRA DE BUSCA E FILTROS DIRETOS ---------------- */}
         {activeTab === 'jobs' && (
           <div className="bg-white border-b border-slate-200/90 px-6 py-2.5 shrink-0 shadow-2xs">
             <div className="flex items-center gap-2.5 flex-wrap">
-              {/* 1. Busca Textual em Tempo Real */}
-              <div className="relative flex-1 min-w-[180px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                <input 
-                  type="text" 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar cargo, empresa, palavra-chave..." 
-                  className="w-full pl-8 pr-7 py-1.5 bg-slate-50 hover:bg-slate-100/80 focus:bg-white text-xs border border-slate-200 focus:border-indigo-500 rounded-xl outline-none transition-all"
-                />
-                {searchQuery && (
-                  <button 
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
+              {/* 1. Busca Textual Direta com Ação de Pesquisa */}
+              <form onSubmit={handleSearchSubmit} className="relative flex-1 min-w-[240px] flex items-center">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <input 
+                    type="text" 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar cargo, empresa, tecnologia (ex: Dev, RH, Estágio...)" 
+                    className="w-full pl-8 pr-7 py-1.5 bg-slate-50 hover:bg-slate-100/80 focus:bg-white text-xs border border-slate-200 focus:border-indigo-500 rounded-xl outline-none transition-all"
+                  />
+                  {searchQuery && (
+                    <button 
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  title="Buscar vagas na web agora"
+                  className="ml-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  <Search size={13} className={isLoading ? 'animate-spin' : ''} />
+                  <span>{isLoading ? 'Buscando...' : 'Buscar'}</span>
+                </button>
+              </form>
 
-              {/* 2. Dropdown: Período */}
+              {/* 2. Dropdown: Período (Padrão: Todas as datas) */}
               <div className="shrink-0">
                 <select
                   value={selectedTimeFilter}
@@ -824,7 +767,7 @@ export default function App() {
               </div>
 
               {/* 5. Pills de Fonte Compactas */}
-              <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-medium shrink-0">
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-medium shrink-0 ml-auto">
                 <button
                   onClick={() => setSelectedSource('ALL')}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
@@ -858,15 +801,6 @@ export default function App() {
                   Indeed
                 </button>
               </div>
-
-              {/* 6. Botão "+ Adicionar Busca" */}
-              <button 
-                onClick={() => setIsFilterModalOpen(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto"
-              >
-                <Plus size={14} />
-                <span>+ Adicionar Busca</span>
-              </button>
             </div>
           </div>
         )}
@@ -943,15 +877,28 @@ export default function App() {
                   <p className="text-xs text-slate-500 max-w-sm mt-1">
                     {isLoading 
                       ? 'Consultando vagas até 80 km de Recife e vagas remotas...'
-                      : 'Altere o período, área ou local nos filtros acima para expandir os resultados.'}
+                      : searchQuery.trim() 
+                        ? `Nenhum resultado local para "${searchQuery}". Deseja pesquisar diretamente nas plataformas agora?`
+                        : 'Altere o período, área ou local nos filtros acima para expandir os resultados.'}
                   </p>
                   {!isLoading && (
-                    <button
-                      onClick={handleRefresh}
-                      className="mt-4 px-4 py-2 rounded-xl bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors cursor-pointer"
-                    >
-                      Recarregar Vagas
-                    </button>
+                    <div className="flex items-center gap-2 mt-4 flex-wrap justify-center">
+                      {searchQuery.trim() && (
+                        <button
+                          onClick={() => handleSearchWeb(searchQuery)}
+                          className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Search size={13} />
+                          <span>Buscar "{searchQuery}" na Web Agora</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={handleRefresh}
+                        className="px-4 py-2 rounded-xl bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors cursor-pointer"
+                      >
+                        Recarregar Vagas
+                      </button>
+                    </div>
                   )}
                 </div>
               ) : viewMode === 'cards' ? (
@@ -1392,66 +1339,6 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA FILTROS */}
-          {activeTab === 'filters' && (
-            <div className="max-w-4xl mx-auto space-y-6">
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">Filtros de Monitoramento</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    O robô em Rust pesquisa periodicamente em paralelo no Gupy, LinkedIn e Indeed usando estas regras.
-                  </p>
-                </div>
-                <button 
-                  onClick={() => setIsFilterModalOpen(true)}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus size={15} />
-                  <span>Novo Filtro</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filters.map((filter) => (
-                  <div key={filter.id} className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm relative group">
-                    <button 
-                      onClick={() => handleDeleteFilter(filter.id)}
-                      className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                      title="Excluir filtro"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-
-                    <div className="flex items-start gap-3.5">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                        <FilterIcon size={20} />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-base text-slate-900">{filter.keyword}</h3>
-                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
-                          <MapPin size={12} className="text-indigo-500" />
-                          <span>{filter.location || 'Recife (até 80 km)'}</span>
-                          <span>•</span>
-                          <span className="font-medium text-slate-700">{filter.type}</span>
-                        </p>
-
-                        <div className="mt-3.5 flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-slate-100 text-[11px] font-medium text-slate-600">
-                            <Clock size={11} />
-                            {filter.timeWindow}
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-50 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 size={11} />
-                            Ativo
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* ABA CONFIGURAÇÕES */}
           {activeTab === 'settings' && (
@@ -1517,154 +1404,7 @@ export default function App() {
         </main>
       </div>
 
-      {/* ---------------- MODAL SIMPLIFICADO E ENXUTO DE NOVO FILTRO ---------------- */}
-      {isFilterModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in duration-150">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-base text-slate-900">Novo Filtro de Monitoramento</h3>
-                <p className="text-xs text-slate-500">Busca automática em até 80 km de Recife e Remoto.</p>
-              </div>
-              <button 
-                onClick={() => setIsFilterModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
 
-            <div className="p-6 space-y-4">
-              {/* 1. Cargo com Datalist/Autocomplete */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Cargo ou Palavra-chave</label>
-                <input 
-                  type="text" 
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  list="cargos-sugestoes"
-                  placeholder="Ex: Auxiliar Administrativo, RH, Suporte TI..."
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all"
-                />
-                <datalist id="cargos-sugestoes">
-                  <option value="Auxiliar Administrativo" />
-                  <option value="Recursos Humanos (RH)" />
-                  <option value="Suporte de TI" />
-                  <option value="Jovem Aprendiz" />
-                  <option value="Estágio" />
-                  <option value="Atendimento" />
-                  <option value="Desenvolvedor" />
-                </datalist>
-              </div>
-
-              {/* 2. Localização com atalhos discretos */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-slate-700">Localização</label>
-                  <div className="flex items-center gap-1 text-[11px]">
-                    <button 
-                      type="button" 
-                      onClick={() => setLocation('Recife (até 80 km)')}
-                      className="text-indigo-600 hover:underline cursor-pointer"
-                    >
-                      [Recife 80km]
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={() => setLocation('Jaboatão dos Guararapes')}
-                      className="text-indigo-600 hover:underline cursor-pointer"
-                    >
-                      [Jaboatão]
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={() => setLocation('Remoto')}
-                      className="text-indigo-600 hover:underline cursor-pointer"
-                    >
-                      [Remoto]
-                    </button>
-                  </div>
-                </div>
-                <input 
-                  type="text" 
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Ex: Recife (até 80 km), Jaboatão, Remoto..."
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-indigo-500 focus:bg-white transition-all"
-                />
-              </div>
-
-              {/* 3. Modalidade em Segmented Control Limpo */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Modalidade</label>
-                <div className="grid grid-cols-4 gap-1.5 bg-slate-100 p-1 rounded-xl">
-                  {['Qualquer', 'Presencial', 'Híbrido', 'Apenas Remoto'].map(m => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setModality(m)}
-                      className={`py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer text-center ${
-                        modality === m
-                          ? 'bg-white text-slate-900 font-semibold shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      {m === 'Apenas Remoto' ? 'Remoto' : m}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 4. Período */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Tipo de Contrato</label>
-                  <select 
-                    value={contractType}
-                    onChange={(e) => setContractType(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500 cursor-pointer"
-                  >
-                    <option value="Todos">Todos os Contratos</option>
-                    <option value="CLT">CLT</option>
-                    <option value="Jovem Aprendiz">Jovem Aprendiz</option>
-                    <option value="Estágio">Estágio</option>
-                    <option value="PJ">PJ</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Janela de Publicação</label>
-                  <select 
-                    value={timeWindow}
-                    onChange={(e) => setTimeWindow(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500 cursor-pointer"
-                  >
-                    <option value="30d">Últimos 30 dias</option>
-                    <option value="7d">Últimos 7 dias</option>
-                    <option value="3d">Últimos 3 dias</option>
-                    <option value="24h">Últimas 24 horas</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 bg-slate-50/80 border-t border-slate-100 flex justify-end gap-2.5">
-              <button 
-                onClick={() => setIsFilterModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleSaveFilter}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
-              >
-                Salvar Filtro
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ---------------- POP-UP / MODAL DE DETALHES DA VAGA ---------------- */}
       <JobDetailsModal

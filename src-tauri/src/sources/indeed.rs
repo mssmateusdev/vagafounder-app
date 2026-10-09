@@ -60,9 +60,9 @@ fn search_url(keyword: &str, scope: &Scope, start: u32) -> String {
     let kw = strip_accents(keyword);
     let start_param = if start > 0 { format!("&start={start}") } else { String::new() };
     match scope {
-        Scope::Metro => format!("https://br.indeed.com/jobs?q={}&l={}&radius=100&fromage=14&sort=date{}", enc(&kw), enc("Recife, PE"), start_param),
-        Scope::Remote => format!("https://br.indeed.com/jobs?q={}&l={}&fromage=14&sort=date{}", enc(&kw), enc("Remoto"), start_param),
-        Scope::Custom(loc) => format!("https://br.indeed.com/jobs?q={}&l={}&radius=50&fromage=14&sort=date{}", enc(&kw), enc(loc), start_param),
+        Scope::Metro => format!("https://br.indeed.com/jobs?q={}&l={}&radius=100&sort=date{}", enc(&kw), enc("Recife, PE"), start_param),
+        Scope::Remote => format!("https://br.indeed.com/jobs?q={}&l={}&sort=date{}", enc(&kw), enc("Remoto"), start_param),
+        Scope::Custom(loc) => format!("https://br.indeed.com/jobs?q={}&l={}&radius=50&sort=date{}", enc(&kw), enc(loc), start_param),
     }
 }
 
@@ -90,7 +90,7 @@ async fn fetch_payload(app: &AppHandle, url: &str) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("Falha ao abrir janela do Indeed: {e}"))?;
 
-    let result = tokio::time::timeout(Duration::from_secs(25), rx).await;
+    let result = tokio::time::timeout(Duration::from_secs(6), rx).await;
     let _ = window.close();
 
     let raw = result.map_err(|_| "Indeed não respondeu a tempo (possível verificação anti-robô)".to_string())?
@@ -110,21 +110,12 @@ pub async fn search(app: &AppHandle, keyword: &str, scope: &Scope) -> Result<Vec
     if let Some(jobs) = payload["jobs"].as_array() {
         all_raw_jobs.extend(jobs.clone());
 
-        // Se a primeira página trouxe vagas, busca as próximas páginas (start=10 e start=20)
+        // Se a primeira página trouxe vagas, tenta uma segunda página rapidamente
         if !jobs.is_empty() {
             if let Ok(next_payload) = fetch_payload(app, &search_url(keyword, scope, 10)).await {
                 if next_payload["ok"].as_bool() == Some(true) {
                     if let Some(next_jobs) = next_payload["jobs"].as_array() {
                         all_raw_jobs.extend(next_jobs.clone());
-                        if !next_jobs.is_empty() {
-                            if let Ok(p3) = fetch_payload(app, &search_url(keyword, scope, 20)).await {
-                                if p3["ok"].as_bool() == Some(true) {
-                                    if let Some(p3_jobs) = p3["jobs"].as_array() {
-                                        all_raw_jobs.extend(p3_jobs.clone());
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -147,9 +138,6 @@ pub async fn search(app: &AppHandle, keyword: &str, scope: &Scope) -> Result<Vec
                 .filter(|ms| *ms > 0)
                 .and_then(|ms| Utc.timestamp_millis_opt(ms).single())
                 .unwrap_or_else(Utc::now);
-            if !within_age(&published) {
-                return None;
-            }
             let modality = if remote { "Remoto" } else { infer_modality(&format!("{title} {loc}")).unwrap_or("Presencial") };
             let city = if remote && loc.is_empty() { "Brasil".to_string() } else { pretty_city(loc) };
             Some(make_job(

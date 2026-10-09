@@ -2,8 +2,8 @@ use crate::Job;
 pub use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use std::collections::HashSet;
 
-/// Janela máxima de publicação aceita (dias).
-pub const MAX_AGE_DAYS: i64 = 30;
+#[allow(dead_code)]
+pub const MAX_AGE_DAYS: i64 = 365;
 
 /// Municípios de PE num raio de ~80 km de Recife (normalizados: minúsculo, sem acento).
 const METRO: &[&str] = &[
@@ -121,6 +121,7 @@ pub fn parse_date(s: &str) -> Option<DateTime<Utc>> {
     Some(dt.min(Utc::now()))
 }
 
+#[allow(dead_code)]
 pub fn within_age(dt: &DateTime<Utc>) -> bool {
     Utc::now().signed_duration_since(*dt).num_days() <= MAX_AGE_DAYS
 }

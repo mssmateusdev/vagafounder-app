@@ -59,9 +59,7 @@ fn parse(html: &str, plan: &Plan, metro_only: bool) -> (usize, Vec<Job>) {
             .and_then(|t| t.value().attr("datetime"))
             .and_then(parse_date)
             .unwrap_or_else(Utc::now);
-        if !within_age(&published) {
-            continue;
-        }
+
 
         let modality = if plan.remote { "Remoto" } else { infer_modality(&format!("{title} {loc}")).unwrap_or("Presencial") };
         let city = if plan.remote { "Brasil".to_string() } else { pretty_city(&loc) };
@@ -88,7 +86,7 @@ pub async fn search(client: &Client, sem: &Semaphore, keyword: &str, scope: &Sco
         for p in 0..plan.pages {
             let start_offset = p * 25;
             let mut url = format!(
-                "{BASE}?keywords={kw}&location={}&f_TPR=r2592000&start={start_offset}",
+                "{BASE}?keywords={kw}&location={}&start={start_offset}",
                 enc(&plan.location),
             );
             if let Some(d) = plan.distance {

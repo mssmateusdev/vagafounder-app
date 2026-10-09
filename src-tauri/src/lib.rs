@@ -145,49 +145,68 @@ fn summarize(source: &str, results: Vec<Result<Vec<Job>, String>>, all: &mut Vec
     }
 }
 
-async fn scan(app: &AppHandle) -> Vec<Job> {
+async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     let state = app.state::<AppState>();
     let _guard = state.scan_lock.lock().await;
     state.scanning.store(true, Ordering::SeqCst);
     emit_status(app);
 
-    let qs = queries(&state.filters.lock().unwrap().clone());
-    let client = sources::client();
-    let sem = Semaphore::new(4);
-
-    let http = async {
-        let gupy = futures::future::join_all(qs.iter().map(|(k, s)| sources::gupy::search(&client, &sem, k, s)));
-        let li = futures::future::join_all(qs.iter().map(|(k, s)| sources::linkedin::search(&client, &sem, k, s)));
-        tokio::join!(gupy, li)
-    };
-    // Indeed usa janelas WebView ocultas: uma por vez.
-    let indeed = async {
-        let mut out = Vec::new();
-        for (k, s) in &qs {
-            let r = sources::indeed::search(app, k, s).await;
-            let blocked = r.as_ref().err().is_some_and(|e| e.contains("bloque") || e.contains("anti-rob"));
-            out.push(r);
-            if blocked {
-                break; // não insiste se o Indeed exigir verificação
-            }
+    let qs: Vec<(String, Scope)> = if let Some(ref kw) = custom_keyword {
+        let trimmed = kw.trim();
+        if !trimmed.is_empty() {
+            vec![(trimmed.to_string(), Scope::Metro)]
+        } else {
+            queries(&state.filters.lock().unwrap().clone())
         }
-        out
+    } else {
+        queries(&state.filters.lock().unwrap().clone())
     };
-    let ((gupy, li), indeed) = tokio::join!(http, indeed);
+
+    let client = sources::client();
+    let sem = Semaphore::new(6);
+
+    // 1. Executa primeiro as fontes HTTP rápidas (Gupy + LinkedIn) em paralelo
+    let gupy_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::gupy::search(&client, &sem, k, s)));
+    let li_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::linkedin::search(&client, &sem, k, s)));
+    let (gupy_res, li_res) = tokio::join!(gupy_f, li_f);
 
     let mut all = Vec::new();
-    let statuses = vec![
-        summarize("gupy", gupy, &mut all),
-        summarize("linkedin", li, &mut all),
-        summarize("indeed", indeed, &mut all),
+    let mut statuses = vec![
+        summarize("gupy", gupy_res, &mut all),
+        summarize("linkedin", li_res, &mut all),
     ];
-    let jobs = dedupe_sort(all);
+
+    // Se houve busca com termo personalizado, preserva o histórico de vagas já encontradas
+    if custom_keyword.is_some() {
+        let cached = state.cached_jobs.lock().unwrap().clone();
+        all.extend(cached);
+    }
+
+    let mid_jobs = dedupe_sort(all.clone());
+    *state.cached_jobs.lock().unwrap() = mid_jobs.clone();
+    *state.sources.lock().unwrap() = statuses.clone();
+    // Emite IMEDIATAMENTE para o frontend! O usuário já vê as vagas em 1-2 segundos!
+    let _ = app.emit("jobs-updated", &mid_jobs);
+    emit_status(app);
+
+    // 2. Executa Indeed de forma não-bloqueante com timeout curto
+    let mut indeed_results = Vec::new();
+    for (k, s) in &qs {
+        let r = sources::indeed::search(app, k, s).await;
+        let blocked = r.as_ref().err().is_some_and(|e| e.contains("bloque") || e.contains("anti-rob") || e.contains("tempo"));
+        indeed_results.push(r);
+        if blocked {
+            break; // não insiste se o Indeed bloquear/der timeout
+        }
+    }
+    statuses.push(summarize("indeed", indeed_results, &mut all));
+    let final_jobs = dedupe_sort(all);
 
     // Notifica somente vagas novas (na primeira varredura apenas registra, para não inundar).
     let fresh: Vec<Job> = {
         let mut notified = state.notified_ids.lock().unwrap();
         let first_run = notified.is_empty();
-        let fresh: Vec<Job> = jobs.iter().filter(|j| notified.insert(j.id.clone())).cloned().collect();
+        let fresh: Vec<Job> = final_jobs.iter().filter(|j| notified.insert(j.id.clone())).cloned().collect();
         if first_run { Vec::new() } else { fresh }
     };
     if !fresh.is_empty() && !state.muted.load(Ordering::SeqCst) {
@@ -199,13 +218,13 @@ async fn scan(app: &AppHandle) -> Vec<Job> {
         let _ = app.notification().builder().title(title).body(body).show();
     }
 
-    *state.cached_jobs.lock().unwrap() = jobs.clone();
+    *state.cached_jobs.lock().unwrap() = final_jobs.clone();
     *state.sources.lock().unwrap() = statuses;
     *state.last_check_at.lock().unwrap() = Some(Utc::now());
     state.scanning.store(false, Ordering::SeqCst);
-    let _ = app.emit("jobs-updated", &jobs);
+    let _ = app.emit("jobs-updated", &final_jobs);
     emit_status(app);
-    jobs
+    final_jobs
 }
 
 fn start_worker(app: AppHandle) {
@@ -213,7 +232,7 @@ fn start_worker(app: AppHandle) {
         loop {
             let state = app.state::<AppState>();
             if !state.paused.load(Ordering::SeqCst) {
-                scan(&app).await;
+                scan(&app, None).await;
             }
             let next = Utc::now() + ChronoDuration::minutes(CHECK_INTERVAL_MIN);
             *state.next_check_at.lock().unwrap() = (!state.paused.load(Ordering::SeqCst)).then_some(next);
@@ -259,13 +278,13 @@ fn get_jobs(state: State<'_, AppState>) -> Vec<Job> {
 }
 
 #[tauri::command]
-async fn scan_now(app: AppHandle) -> Result<Vec<Job>, String> {
-    Ok(scan(&app).await)
+async fn scan_now(app: AppHandle, keyword: Option<String>) -> Result<Vec<Job>, String> {
+    Ok(scan(&app, keyword).await)
 }
 
 #[tauri::command]
-async fn fetch_jobs(app: AppHandle) -> Result<Vec<Job>, String> {
-    Ok(scan(&app).await)
+async fn fetch_jobs(app: AppHandle, keyword: Option<String>) -> Result<Vec<Job>, String> {
+    Ok(scan(&app, keyword).await)
 }
 
 #[tauri::command]

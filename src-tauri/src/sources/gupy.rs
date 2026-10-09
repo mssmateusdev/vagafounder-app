@@ -44,21 +44,26 @@ async fn fallback_page(client: &Client, sem: &Semaphore, url: &str) -> Option<(V
 
 async fn collect_jobs(client: &Client, sem: &Semaphore, base_query: &str) -> Vec<Value> {
     let url_100 = format!("{API_BASE}?{base_query}&limit=100&offset=0");
-    if let Some((first_batch, total)) = fetch_api(client, sem, &url_100).await {
+    if let Some((first_batch, _)) = fetch_api(client, sem, &url_100).await {
+        let first_len = first_batch.len();
         let mut results = first_batch;
-        let mut offset = 100;
-        // Paginando até offset=200 se houver mais de 100 resultados
-        while offset < total && offset <= 200 {
-            let url_offset = format!("{API_BASE}?{base_query}&limit=100&offset={offset}");
-            if let Some((next_batch, _)) = fetch_api(client, sem, &url_offset).await {
-                if next_batch.is_empty() {
+        // Se a primeira página veio cheia (100 itens), busca até mais 2 páginas (offset 100 e 200)
+        if first_len >= 100 {
+            for offset in [100, 200] {
+                let url_offset = format!("{API_BASE}?{base_query}&limit=100&offset={offset}");
+                if let Some((next_batch, _)) = fetch_api(client, sem, &url_offset).await {
+                    if next_batch.is_empty() {
+                        break;
+                    }
+                    let count = next_batch.len();
+                    results.extend(next_batch);
+                    if count < 100 {
+                        break;
+                    }
+                } else {
                     break;
                 }
-                results.extend(next_batch);
-            } else {
-                break;
             }
-            offset += 100;
         }
         return results;
     }
@@ -75,16 +80,19 @@ async fn collect_jobs(client: &Client, sem: &Semaphore, base_query: &str) -> Vec
 fn to_job(v: &Value) -> Option<Job> {
     let title = v["name"].as_str()?.trim().to_string();
     let published = parse_date(v["publishedDate"].as_str().unwrap_or("")).unwrap_or_else(Utc::now);
-    if !within_age(&published) {
-        return None;
-    }
     let modality = match v["workplaceType"].as_str().unwrap_or("") {
         "remote" => "Remoto",
         "hybrid" => "Híbrido",
         _ => "Presencial",
     };
-    let city = v["city"].as_str().unwrap_or("").trim();
-    let city = if modality == "Remoto" && city.is_empty() { "Brasil".to_string() } else { pretty_city(city) };
+    let city_raw = v["city"].as_str().unwrap_or("").trim();
+    let city = if modality == "Remoto" && city_raw.is_empty() {
+        "Brasil".to_string()
+    } else if city_raw.is_empty() {
+        "Pernambuco".to_string()
+    } else {
+        pretty_city(city_raw)
+    };
     let id_str = v["id"]
         .as_i64()
         .map(|n| n.to_string())
@@ -145,7 +153,10 @@ pub async fn search(client: &Client, sem: &Semaphore, keyword: &str, scope: &Sco
             } else {
                 local
                     .into_iter()
-                    .filter(|v| is_remote(v) || in_radius(v["city"].as_str().unwrap_or("")))
+                    .filter(|v| is_remote(v) || {
+                        let c = v["city"].as_str().unwrap_or("").trim();
+                        c.is_empty() || in_radius(c)
+                    })
                     .chain(remote.into_iter().filter(is_remote))
                     .collect()
             }
