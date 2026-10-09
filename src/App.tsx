@@ -490,7 +490,7 @@ export default function App() {
               {!isSidebarCollapsed && (
                 <div className="truncate">
                   <h1 className="text-white font-bold text-base tracking-tight leading-none">VagaFounder</h1>
-                  <p className="text-[11px] text-emerald-400 font-semibold tracking-wide mt-1">by: MateusDeveleoper</p>
+                  <p className="text-[11px] text-emerald-400 font-semibold tracking-wide mt-1">by: MateusDeveloper</p>
                 </div>
               )}
             </div>
@@ -603,7 +603,7 @@ export default function App() {
               </span>
               <span className="text-slate-300">•</span>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold border border-indigo-200/70 shadow-2xs">
-                by: MateusDeveleoper
+                by: MateusDeveloper
               </span>
             </div>
           </div>

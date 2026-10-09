@@ -13,7 +13,7 @@
 
 *Desenvolvido com foco em alta performance nativa, baixo consumo de memória e produtividade na busca por vagas de emprego.*
 
-**by: MateusDeveleoper**
+**by: MateusDeveloper**
 
 ---
 
@@ -226,7 +226,7 @@ Este projeto é distribuído sob a licença **MIT**. Consulte o arquivo `LICENSE
 
 <div align="center">
 
-Desenvolvido com dedicação por **MateusDeveleoper** 🚀  
+Desenvolvido com dedicação por **MateusDeveloper** 🚀  
 Se este projeto foi útil para você, deixe uma ⭐ no repositório!
 
 </div>
