@@ -26,14 +26,28 @@ import {
   Pause,
   EyeOff,
   Eye,
-  Check
+  Check,
+  BellRing,
+  Plus,
+  Tag,
+  Sparkles
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Job, MonitorStatus } from './types';
+import type { Job, MonitorStatus, NotificationSettings } from './types';
 import { JobDetailsModal } from './components/JobDetailsModal';
+
+const PRESET_NOTIFICATION_ROLES = [
+  { id: 'Jovem Aprendiz', label: 'Jovem Aprendiz', desc: 'Vagas para primeiro emprego e aprendizado' },
+  { id: 'Estágio', label: 'Estágio', desc: 'Estágios técnicos ou de ensino superior' },
+  { id: 'Auxiliar Administrativo', label: 'Auxiliar Administrativo', desc: 'Rotinas de escritório, recepção e apoio' },
+  { id: 'Recursos Humanos (RH)', label: 'Recursos Humanos (RH)', desc: 'Recrutamento, DP, gestão de pessoas' },
+  { id: 'Suporte de TI', label: 'Suporte de TI', desc: 'Helpdesk, suporte técnico, hardware e redes' },
+  { id: 'Tecnologia & Dev', label: 'Tecnologia & Dev', desc: 'Programação, frontend, backend, dados' },
+  { id: 'Atendimento / Recepção', label: 'Atendimento / Recepção', desc: 'SAC, recepcionista, portaria e atendimento' },
+];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'jobs' | 'history' | 'settings'>('jobs');
@@ -89,6 +103,52 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Avisos Programáveis (Filtro de Notificações)
+  const [notifyAllRoles, setNotifyAllRoles] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('vagafounder_notify_all');
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [selectedNotifyRoles, setSelectedNotifyRoles] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('vagafounder_notify_roles');
+      return saved ? JSON.parse(saved) : [
+        'Jovem Aprendiz',
+        'Estágio',
+        'Auxiliar Administrativo',
+        'Recursos Humanos (RH)',
+        'Suporte de TI',
+        'Tecnologia & Dev',
+        'Atendimento / Recepção',
+      ];
+    } catch {
+      return [
+        'Jovem Aprendiz',
+        'Estágio',
+        'Auxiliar Administrativo',
+        'Recursos Humanos (RH)',
+        'Suporte de TI',
+        'Tecnologia & Dev',
+        'Atendimento / Recepção',
+      ];
+    }
+  });
+
+  const [customNotifyKeywords, setCustomNotifyKeywords] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('vagafounder_notify_kws') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const [newKeywordInput, setNewKeywordInput] = useState<string>('');
+  const [isTestingNotify, setIsTestingNotify] = useState<boolean>(false);
+
   // Sincronizar localStorage
   useEffect(() => {
     localStorage.setItem('vagafounder_favorites', JSON.stringify(favorites));
@@ -102,6 +162,18 @@ export default function App() {
     localStorage.setItem('vagafounder_dismissed', JSON.stringify(dismissedJobs));
   }, [dismissedJobs]);
 
+  useEffect(() => {
+    localStorage.setItem('vagafounder_notify_all', JSON.stringify(notifyAllRoles));
+  }, [notifyAllRoles]);
+
+  useEffect(() => {
+    localStorage.setItem('vagafounder_notify_roles', JSON.stringify(selectedNotifyRoles));
+  }, [selectedNotifyRoles]);
+
+  useEffect(() => {
+    localStorage.setItem('vagafounder_notify_kws', JSON.stringify(customNotifyKeywords));
+  }, [customNotifyKeywords]);
+
   // Carregar dados e inicializar
   useEffect(() => {
     async function init() {
@@ -112,6 +184,21 @@ export default function App() {
           setMonitorStatus(status);
         } catch (e) {
           console.warn('Status indisponível:', e);
+        }
+
+        try {
+          const nSettings = await invoke<NotificationSettings>('get_notification_settings');
+          if (nSettings) {
+            setNotifyAllRoles(nSettings.notifyAll);
+            if (nSettings.roles && nSettings.roles.length > 0) {
+              setSelectedNotifyRoles(nSettings.roles);
+            }
+            if (nSettings.keywords) {
+              setCustomNotifyKeywords(nSettings.keywords);
+            }
+          }
+        } catch (e) {
+          console.warn('Avisos programáveis indisponíveis:', e);
         }
 
         const cached = await invoke<Job[]>('get_jobs');
@@ -139,6 +226,15 @@ export default function App() {
     const unlistenStatus = listen<MonitorStatus>('monitor-status', (event) => {
       if (event.payload) {
         setMonitorStatus(event.payload);
+        if (event.payload.notificationSettings) {
+          setNotifyAllRoles(event.payload.notificationSettings.notifyAll);
+          if (event.payload.notificationSettings.roles) {
+            setSelectedNotifyRoles(event.payload.notificationSettings.roles);
+          }
+          if (event.payload.notificationSettings.keywords) {
+            setCustomNotifyKeywords(event.payload.notificationSettings.keywords);
+          }
+        }
       }
     });
 
@@ -207,6 +303,75 @@ export default function App() {
       showToast(nextMuted ? 'Notificações silenciadas.' : 'Notificações ativadas!');
     } catch (err) {
       console.error('Erro ao alternar silenciamento:', err);
+    }
+  };
+
+  // Sincronizar configurações de avisos com o Rust backend
+  const syncNotificationSettings = async (
+    all: boolean,
+    roles: string[],
+    keywords: string[]
+  ) => {
+    try {
+      const payload: NotificationSettings = {
+        notifyAll: all,
+        roles,
+        keywords,
+      };
+      await invoke('set_notification_settings', { settings: payload });
+    } catch (err) {
+      console.error('Erro ao salvar avisos programáveis no Rust:', err);
+    }
+  };
+
+  const handleToggleNotifyMode = (all: boolean) => {
+    setNotifyAllRoles(all);
+    syncNotificationSettings(all, selectedNotifyRoles, customNotifyKeywords);
+    showToast(all ? 'Avisos ativados para todas as vagas!' : 'Avisos configurados apenas para cargos selecionados!');
+  };
+
+  const handleToggleNotifyRole = (roleId: string) => {
+    const nextRoles = selectedNotifyRoles.includes(roleId)
+      ? selectedNotifyRoles.filter(r => r !== roleId)
+      : [...selectedNotifyRoles, roleId];
+    setSelectedNotifyRoles(nextRoles);
+    syncNotificationSettings(notifyAllRoles, nextRoles, customNotifyKeywords);
+    showToast(selectedNotifyRoles.includes(roleId) ? `Aviso desativado para "${roleId}"` : `Aviso ativado para "${roleId}"!`);
+  };
+
+  const handleAddKeyword = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = newKeywordInput.trim();
+    if (!clean) return;
+    if (customNotifyKeywords.some(k => k.toLowerCase() === clean.toLowerCase())) {
+      showToast(`O termo "${clean}" já está na lista de avisos.`);
+      setNewKeywordInput('');
+      return;
+    }
+    const nextKws = [...customNotifyKeywords, clean];
+    setCustomNotifyKeywords(nextKws);
+    setNewKeywordInput('');
+    syncNotificationSettings(notifyAllRoles, selectedNotifyRoles, nextKws);
+    showToast(`Termo "${clean}" adicionado aos avisos!`);
+  };
+
+  const handleRemoveKeyword = (kwToRemove: string) => {
+    const nextKws = customNotifyKeywords.filter(k => k !== kwToRemove);
+    setCustomNotifyKeywords(nextKws);
+    syncNotificationSettings(notifyAllRoles, selectedNotifyRoles, nextKws);
+    showToast(`Termo "${kwToRemove}" removido dos avisos.`);
+  };
+
+  const handleTestNotification = async () => {
+    setIsTestingNotify(true);
+    try {
+      await invoke('test_notification');
+      showToast('Aviso de teste disparado com sucesso no Windows!');
+    } catch (err) {
+      console.error('Erro ao disparar aviso de teste:', err);
+      showToast('Erro ao disparar notificação de teste.');
+    } finally {
+      setTimeout(() => setIsTestingNotify(false), 1200);
     }
   };
 
@@ -1342,61 +1507,268 @@ export default function App() {
 
           {/* ABA CONFIGURAÇÕES */}
           {activeTab === 'settings' && (
-            <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-slate-200 p-8 shadow-sm space-y-6">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 mb-1">Configurações do Monitor</h2>
-                <p className="text-xs text-slate-500">Parâmetros do motor nativo Tauri v2 e scrapers em Rust.</p>
+            <div className="max-w-3xl mx-auto space-y-6 pb-12">
+              {/* CARTÃO 1: AVISOS PROGRAMÁVEIS */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+                <div className="flex items-start justify-between flex-wrap gap-4 pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl text-white shadow-xs">
+                      <BellRing size={22} className="stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg sm:text-xl font-bold text-slate-900">Avisos Programáveis</h2>
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          Filtro Inteligente
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Defina exatamente para quais vagas você quer receber notificações no Windows.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleTestNotification}
+                    disabled={isTestingNotify}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                    title="Dispara um balão de notificação no Windows para testar"
+                  >
+                    <BellRing size={13} className={isTestingNotify ? 'animate-bounce text-indigo-600' : 'text-slate-500'} />
+                    <span>{isTestingNotify ? 'Enviando...' : 'Testar Notificação'}</span>
+                  </button>
+                </div>
+
+                {/* Seletor de Modo de Aviso */}
+                <div className="space-y-3">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                    Modo de Disparo das Notificações
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleNotifyMode(true)}
+                      className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                        notifyAllRoles
+                          ? 'border-indigo-600 bg-indigo-50/50 shadow-xs'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-900">Todas as Oportunidades</span>
+                        <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          notifyAllRoles ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'
+                        }`}>
+                          {notifyAllRoles && <Check size={10} className="stroke-[3]" />}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Avisar sempre que qualquer nova vaga for encontrada na varredura.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleNotifyMode(false)}
+                      className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                        !notifyAllRoles
+                          ? 'border-indigo-600 bg-indigo-50/50 shadow-xs'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900">Apenas Cargos Selecionados</span>
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            Sem Spam
+                          </span>
+                        </div>
+                        <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          !notifyAllRoles ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'
+                        }`}>
+                          {!notifyAllRoles && <Check size={10} className="stroke-[3]" />}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Notificar apenas quando a vaga pertencer aos cargos ou termos abaixo.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Grade de Cargos Programáveis */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Cargos de Interesse
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Selecione as áreas que devem acionar a notificação no Windows
+                      </p>
+                    </div>
+                    {!notifyAllRoles && (
+                      <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                        {selectedNotifyRoles.length} selecionado{selectedNotifyRoles.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {PRESET_NOTIFICATION_ROLES.map((role) => {
+                      const isSelected = selectedNotifyRoles.includes(role.id);
+                      return (
+                        <div
+                          key={role.id}
+                          onClick={() => handleToggleNotifyRole(role.id)}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            isSelected
+                              ? 'bg-indigo-50/60 border-indigo-300 text-slate-900 shadow-2xs'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold truncate text-slate-900">{role.label}</p>
+                            <p className="text-[10px] text-slate-500 truncate">{role.desc}</p>
+                          </div>
+
+                          <div className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition-all ${
+                            isSelected 
+                              ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs' 
+                              : 'border-slate-300 bg-white'
+                          }`}>
+                            {isSelected && <Check size={12} className="stroke-[3]" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Palavras-chave Customizadas */}
+                <div className="space-y-3 pt-2">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Termos e Palavras-chave Adicionais
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Receba alertas também se o título da vaga contiver algum destes termos
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleAddKeyword} className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Tag size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={newKeywordInput}
+                        onChange={(e) => setNewKeywordInput(e.target.value)}
+                        placeholder="Ex: Home Office, Desenvolvedor, Design, PCD, React..."
+                        className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={!newKeywordInput.trim()}
+                      className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-40 disabled:pointer-events-none text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs whitespace-nowrap"
+                    >
+                      <Plus size={14} className="stroke-[2.5]" />
+                      <span>Adicionar</span>
+                    </button>
+                  </form>
+
+                  {customNotifyKeywords.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {customNotifyKeywords.map((kw) => (
+                        <span
+                          key={kw}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 transition-colors"
+                        >
+                          <span>{kw}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveKeyword(kw)}
+                            className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                            title="Remover termo"
+                          >
+                            <X size={12} className="stroke-[2.5]" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-400 italic">
+                      Nenhum termo adicional cadastrado.
+                    </p>
+                  )}
+                </div>
+
+                {/* Banner Informativo */}
+                <div className="p-3.5 bg-gradient-to-r from-indigo-50/80 to-blue-50/80 border border-indigo-100 rounded-xl flex items-start gap-3">
+                  <Sparkles size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    <strong className="text-slate-800">Como funciona:</strong> Mesmo que você minimize ou feche o aplicativo para a bandeja do sistema, o motor em segundo plano roda a cada 15 minutos e só disparará notificações no Windows se a nova vaga coincidir com as regras configuradas aqui.
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-900">Notificações Toast do Windows</h4>
-                    <p className="text-xs text-slate-500">Exibir balão nativo ao encontrar novas oportunidades</p>
-                  </div>
-                  <button
-                    onClick={handleToggleMute}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                      monitorStatus?.muted ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-800'
-                    }`}
-                  >
-                    {monitorStatus?.muted ? 'Silenciado' : 'Ativado'}
-                  </button>
+              {/* CARTÃO 2: MOTOR DE MONITORAMENTO & SISTEMA */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-0.5">Motor de Monitoramento & Sistema</h3>
+                  <p className="text-xs text-slate-500">Parâmetros do processo nativo em segundo plano e scrapers.</p>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-900">Rotina em Segundo Plano</h4>
-                    <p className="text-xs text-slate-500">Varreduras automáticas em background</p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900">Notificações Toast do Windows</h4>
+                      <p className="text-[11px] text-slate-500">Exibir balão nativo no canto da tela ao encontrar novas vagas</p>
+                    </div>
+                    <button
+                      onClick={handleToggleMute}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                        monitorStatus?.muted ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-800'
+                      }`}
+                    >
+                      {monitorStatus?.muted ? 'Silenciado' : 'Ativado'}
+                    </button>
                   </div>
-                  <button
-                    onClick={handleTogglePause}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                      monitorStatus?.paused ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                    }`}
-                  >
-                    {monitorStatus?.paused ? 'Pausado' : 'Monitorando'}
-                  </button>
-                </div>
 
-                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-900">Fontes Ativas Integradas</h4>
-                    <p className="text-xs text-slate-500">Gupy (JSON API), LinkedIn (Guest API) e Indeed (Busca integrada)</p>
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900">Rotina em Segundo Plano</h4>
+                      <p className="text-[11px] text-slate-500">Varreduras automáticas periódicas (a cada 15 minutos)</p>
+                    </div>
+                    <button
+                      onClick={handleTogglePause}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                        monitorStatus?.paused ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                      }`}
+                    >
+                      {monitorStatus?.paused ? 'Pausado' : 'Monitorando'}
+                    </button>
                   </div>
-                  <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-100 text-indigo-800 rounded-lg">
-                    3 Fontes Ativas
-                  </span>
-                </div>
 
-                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-900">Bandeja do Sistema (Tray)</h4>
-                    <p className="text-xs text-slate-500">Fechar janela oculta para a bandeja sem encerrar o app</p>
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900">Fontes Ativas Integradas</h4>
+                      <p className="text-[11px] text-slate-500">Gupy (JSON API), LinkedIn (Guest API) e Indeed (Busca integrada)</p>
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-100 text-indigo-800 rounded-lg">
+                      3 Fontes Ativas
+                    </span>
                   </div>
-                  <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg">
-                    Habilitado
-                  </span>
+
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900">Bandeja do Sistema (System Tray)</h4>
+                      <p className="text-[11px] text-slate-500">Fechar janela oculta para a bandeja sem encerrar o app</p>
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg">
+                      Habilitado
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

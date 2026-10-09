@@ -33,6 +33,12 @@ export interface SourceStatus {
   error?: string | null;
 }
 
+export interface NotificationSettings {
+  notifyAll: boolean;
+  roles: string[];
+  keywords: string[];
+}
+
 export interface MonitorStatus {
   paused: boolean;
   muted: boolean;
@@ -40,4 +46,5 @@ export interface MonitorStatus {
   nextCheckAt?: string | null;
   lastCheckAt?: string | null;
   sources: SourceStatus[];
+  notificationSettings?: NotificationSettings;
 }

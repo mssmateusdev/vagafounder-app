@@ -66,6 +66,13 @@ Com suporte a escopo geográfico regional (**Recife e região metropolitana em a
   - *Sair* (encerra o aplicativo definitivamente).
 * **Notificações do Sistema:** Alertas nativos no Windows/Linux/macOS sempre que novas vagas compatíveis forem encontradas.
 
+### 🔔 Avisos Programáveis & Filtro Inteligente de Notificações
+* **Controle Total de Alertas:** Escolha entre receber avisos de todas as oportunidades ou programar notificações apenas para vagas de seu interesse direto.
+* **Filtro por Áreas / Cargos:** Ative ou desative notificações independentes para *Jovem Aprendiz*, *Estágio*, *Auxiliar Administrativo*, *Recursos Humanos (RH)*, *Suporte de TI*, *Tecnologia & Dev* e *Atendimento / Recepção*.
+* **Palavras-chave Customizadas:** Cadastre termos adicionais (ex: *Home Office*, *React*, *Design*, *PCD*) para disparar alertas mesmo quando a vaga tiver nomenclatura alternativa.
+* **Sem Spam:** O motor em background (a cada 15 min) e as buscas manuais filtram novas vagas contra suas regras antes de emitir balões Toast no Windows.
+* **Botão de Teste Integrado:** Teste o envio imediato da notificação nativa diretamente na aba de Configurações.
+
 ---
 
 ## 🏗️ Arquitetura do Sistema

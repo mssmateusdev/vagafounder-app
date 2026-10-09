@@ -63,6 +63,14 @@ pub struct SourceStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSettings {
+    pub notify_all: bool,
+    pub roles: Vec<String>,
+    pub keywords: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MonitorStatus {
@@ -72,6 +80,7 @@ pub struct MonitorStatus {
     pub next_check_at: Option<String>,
     pub last_check_at: Option<String>,
     pub sources: Vec<SourceStatus>,
+    pub notification_settings: NotificationSettings,
 }
 
 pub struct AppState {
@@ -82,6 +91,9 @@ pub struct AppState {
     paused: AtomicBool,
     muted: AtomicBool,
     scanning: AtomicBool,
+    notify_all_roles: AtomicBool,
+    notify_roles: Mutex<Vec<String>>,
+    notify_keywords: Mutex<Vec<String>>,
     next_check_at: Mutex<Option<DateTime<Utc>>>,
     last_check_at: Mutex<Option<DateTime<Utc>>>,
     /// Acorda o worker (tray "Verificar agora" / retomar).
@@ -99,6 +111,11 @@ impl AppState {
             next_check_at: self.next_check_at.lock().unwrap().map(|d| d.to_rfc3339()),
             last_check_at: self.last_check_at.lock().unwrap().map(|d| d.to_rfc3339()),
             sources: self.sources.lock().unwrap().clone(),
+            notification_settings: NotificationSettings {
+                notify_all: self.notify_all_roles.load(Ordering::SeqCst),
+                roles: self.notify_roles.lock().unwrap().clone(),
+                keywords: self.notify_keywords.lock().unwrap().clone(),
+            },
         }
     }
 }
@@ -209,11 +226,40 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
         let fresh: Vec<Job> = final_jobs.iter().filter(|j| notified.insert(j.id.clone())).cloned().collect();
         if first_run { Vec::new() } else { fresh }
     };
-    if !fresh.is_empty() && !state.muted.load(Ordering::SeqCst) {
-        let (title, body) = if fresh.len() == 1 {
-            (format!("Nova vaga: {}", fresh[0].title), format!("{} • {}", fresh[0].company, fresh[0].location))
+
+    // Avisos programáveis: só notifica vagas que correspondem aos cargos/termos selecionados
+    let fresh_to_notify: Vec<Job> = if state.notify_all_roles.load(Ordering::SeqCst) {
+        fresh
+    } else {
+        let allowed_roles = state.notify_roles.lock().unwrap().clone();
+        let custom_kws = state.notify_keywords.lock().unwrap().clone();
+        if allowed_roles.is_empty() && custom_kws.is_empty() {
+            fresh
         } else {
-            (format!("{} novas vagas encontradas", fresh.len()), fresh.iter().take(3).map(|j| j.title.as_str()).collect::<Vec<_>>().join(" • "))
+            fresh
+                .into_iter()
+                .filter(|j| {
+                    let j_type = util::norm(&j.r#type);
+                    let j_title = util::norm(&j.title);
+                    let matches_role = allowed_roles.iter().any(|r| {
+                        let r_n = util::norm(r);
+                        j_type.contains(&r_n) || j_title.contains(&r_n)
+                    });
+                    let matches_kw = custom_kws.iter().any(|k| {
+                        let k_n = util::norm(k);
+                        !k_n.is_empty() && j_title.contains(&k_n)
+                    });
+                    matches_role || matches_kw
+                })
+                .collect()
+        }
+    };
+
+    if !fresh_to_notify.is_empty() && !state.muted.load(Ordering::SeqCst) {
+        let (title, body) = if fresh_to_notify.len() == 1 {
+            (format!("Nova vaga: {}", fresh_to_notify[0].title), format!("{} • {}", fresh_to_notify[0].company, fresh_to_notify[0].location))
+        } else {
+            (format!("{} novas vagas de seu interesse", fresh_to_notify.len()), fresh_to_notify.iter().take(3).map(|j| j.title.as_str()).collect::<Vec<_>>().join(" • "))
         };
         let _ = app.notification().builder().title(title).body(body).show();
     }
@@ -301,6 +347,34 @@ fn set_paused(app: AppHandle, paused: bool) {
 fn set_muted(app: AppHandle, muted: bool) {
     app.state::<AppState>().muted.store(muted, Ordering::SeqCst);
     emit_status(&app);
+}
+
+#[tauri::command]
+fn get_notification_settings(state: State<'_, AppState>) -> NotificationSettings {
+    NotificationSettings {
+        notify_all: state.notify_all_roles.load(Ordering::SeqCst),
+        roles: state.notify_roles.lock().unwrap().clone(),
+        keywords: state.notify_keywords.lock().unwrap().clone(),
+    }
+}
+
+#[tauri::command]
+fn set_notification_settings(app: AppHandle, settings: NotificationSettings, state: State<'_, AppState>) -> NotificationSettings {
+    state.notify_all_roles.store(settings.notify_all, Ordering::SeqCst);
+    *state.notify_roles.lock().unwrap() = settings.roles.clone();
+    *state.notify_keywords.lock().unwrap() = settings.keywords.clone();
+    emit_status(&app);
+    settings
+}
+
+#[tauri::command]
+fn test_notification(app: AppHandle) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title("VagaFounder • Teste de Aviso")
+        .body("Configurações de avisos programáveis ativas! Você receberá alertas das vagas selecionadas.")
+        .show()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -415,6 +489,9 @@ pub fn run() {
             paused: AtomicBool::new(false),
             muted: AtomicBool::new(false),
             scanning: AtomicBool::new(false),
+            notify_all_roles: AtomicBool::new(true),
+            notify_roles: Mutex::new(Vec::new()),
+            notify_keywords: Mutex::new(Vec::new()),
             next_check_at: Mutex::new(None),
             last_check_at: Mutex::new(None),
             wake: Notify::new(),
@@ -427,6 +504,9 @@ pub fn run() {
             get_status,
             set_paused,
             set_muted,
+            get_notification_settings,
+            set_notification_settings,
+            test_notification,
             get_filters,
             save_filter,
             delete_filter,
