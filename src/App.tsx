@@ -289,13 +289,15 @@ export default function App() {
           console.warn('Configurações externas indisponíveis:', e);
         }
 
-        // Tenta carregar do cache instantâneo primeiro
+        // Carrega instantaneamente o cache persistente do disco (0ms)
         const cached = await invoke<Job[]>('get_jobs');
         if (cached && cached.length > 0) {
           setJobs(cached);
           setIsLoading(false);
+          // Atualiza em segundo plano sem travar a interface do usuário
+          invoke<Job[]>('scan_now', { keyword: null }).catch(console.error);
         } else {
-          // Se não houver cache, dispara primeira varredura rápida
+          // Se for a primeira inicialização do app, dispara a varredura
           setIsLoading(true);
           const fetchedJobs = await invoke<Job[]>('scan_now', { keyword: null });
           if (fetchedJobs && fetchedJobs.length > 0) {
@@ -314,6 +316,8 @@ export default function App() {
     const unlistenJobs = listen<Job[]>('jobs-updated', (event) => {
       if (event.payload && event.payload.length > 0) {
         setJobs(event.payload);
+        // Desativa a tela cheia de carregamento assim que o streaming de vagas chegar
+        setIsLoading(false);
       }
     });
 
@@ -1435,11 +1439,22 @@ export default function App() {
                 </div>
               </div>
 
+              {/* BANNER DE VARREDURA PROGRESSIVA EM SEGUNDO PLANO */}
+              {isLoading && jobs.length > 0 && (
+                <div className="mb-4 px-4 py-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-between text-xs text-indigo-400 animate-in fade-in">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw size={13} className="animate-spin text-indigo-400 shrink-0" />
+                    <span>Consultando plataformas nacionais em tempo real... Novas vagas aparecerão aqui automaticamente.</span>
+                  </div>
+                  <span className="text-[11px] font-medium text-slate-400 dark:text-discord-muted">{jobs.length} vagas ativas</span>
+                </div>
+              )}
+
               {/* LISTAGEM VAZIA */}
               {filteredAndSortedJobs.length === 0 ? (
                 <div className="bg-white dark:bg-discord-card rounded-2xl border border-slate-200/90 dark:border-discord-border shadow-sm flex flex-col items-center justify-center py-20 text-center px-4">
                   <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-discord-input flex items-center justify-center text-indigo-500 mb-3">
-                    <Search size={28} />
+                    <Search size={28} className={isLoading ? 'animate-spin text-indigo-500' : ''} />
                   </div>
                   <h3 className="text-base font-semibold text-slate-900 dark:text-discord-header">
                     {isLoading ? 'Varrendo as 7 plataformas de vagas...' : 'Nenhuma vaga correspondente encontrada'}

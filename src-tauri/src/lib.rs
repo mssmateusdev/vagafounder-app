@@ -1,6 +1,6 @@
-mod sources;
+pub mod sources;
 mod tray;
-mod util;
+pub mod util;
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
@@ -196,6 +196,49 @@ fn summarize(source: &str, results: Vec<Result<Vec<Job>, String>>, all: &mut Vec
     }
 }
 
+fn load_cached_jobs_from_disk(app: &AppHandle) -> Vec<Job> {
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        let file = dir.join("jobs_cache.json");
+        if let Ok(content) = std::fs::read_to_string(file) {
+            if let Ok(jobs) = serde_json::from_str::<Vec<Job>>(&content) {
+                return jobs;
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn save_cached_jobs_to_disk(app: &AppHandle, jobs: &[Job]) {
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("jobs_cache.json");
+        if let Ok(json) = serde_json::to_string(jobs) {
+            let _ = std::fs::write(file, json);
+        }
+    }
+}
+
+fn merge_batch(app: &AppHandle, source: &str, results: Vec<Result<Vec<Job>, String>>) -> Vec<Job> {
+    let mut jobs = Vec::new();
+    let status = summarize(source, results, &mut jobs);
+    let state = app.state::<AppState>();
+    {
+        let mut s = state.sources.lock().unwrap();
+        s.retain(|it| it.source != source);
+        s.push(status);
+    }
+    if !jobs.is_empty() {
+        let mut cached = state.cached_jobs.lock().unwrap();
+        cached.extend(jobs.clone());
+        let merged = dedupe_sort(std::mem::take(&mut *cached));
+        *cached = merged.clone();
+        save_cached_jobs_to_disk(app, &merged);
+        let _ = app.emit("jobs-updated", &merged);
+    }
+    emit_status(app);
+    jobs
+}
+
 async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     let state = app.state::<AppState>();
     let _guard = state.scan_lock.lock().await;
@@ -214,35 +257,77 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     };
 
     let client = sources::client();
-    let sem = Semaphore::new(32);
+    let sem = std::sync::Arc::new(Semaphore::new(32));
 
-    // 1. Executa todas as 6 fontes HTTP em paralelo com semáforo de 32 requisições:
-    // Gupy, LinkedIn, Vagas.com, Trabalha Brasil, InfoJobs e Catho!
-    let gupy_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::gupy::search(&client, &sem, k, s)));
-    let li_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::linkedin::search(&client, &sem, k, s)));
-    let vagas_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::vagas::search(&client, &sem, k, s)));
-    let tb_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::trabalhabrasil::search(&client, &sem, k, s)));
-    let ij_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::infojobs::search(&client, &sem, k, s)));
-    let catho_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::catho::search(&client, &sem, k, s)));
+    // Executa as 6 fontes HTTP em paralelo com emissão progressiva instantânea
+    let app1 = app.clone();
+    let qs1 = qs.clone();
+    let client1 = client.clone();
+    let sem1 = sem.clone();
+    let gupy_task = async move {
+        let res = futures::future::join_all(qs1.iter().map(|(k, s)| sources::gupy::search(&client1, &sem1, k, s))).await;
+        merge_batch(&app1, "gupy", res)
+    };
 
-    let (gupy_res, li_res, vagas_res, tb_res, ij_res, catho_res) =
-        tokio::join!(gupy_f, li_f, vagas_f, tb_f, ij_f, catho_f);
+    let app2 = app.clone();
+    let qs2 = qs.clone();
+    let client2 = client.clone();
+    let sem2 = sem.clone();
+    let li_task = async move {
+        let res = futures::future::join_all(qs2.iter().map(|(k, s)| sources::linkedin::search(&client2, &sem2, k, s))).await;
+        merge_batch(&app2, "linkedin", res)
+    };
+
+    let app3 = app.clone();
+    let qs3 = qs.clone();
+    let client3 = client.clone();
+    let sem3 = sem.clone();
+    let vagas_task = async move {
+        let res = futures::future::join_all(qs3.iter().map(|(k, s)| sources::vagas::search(&client3, &sem3, k, s))).await;
+        merge_batch(&app3, "vagas", res)
+    };
+
+    let app4 = app.clone();
+    let qs4 = qs.clone();
+    let client4 = client.clone();
+    let sem4 = sem.clone();
+    let tb_task = async move {
+        let res = futures::future::join_all(qs4.iter().map(|(k, s)| sources::trabalhabrasil::search(&client4, &sem4, k, s))).await;
+        merge_batch(&app4, "trabalhabrasil", res)
+    };
+
+    let app5 = app.clone();
+    let qs5 = qs.clone();
+    let client5 = client.clone();
+    let sem5 = sem.clone();
+    let ij_task = async move {
+        let res = futures::future::join_all(qs5.iter().map(|(k, s)| sources::infojobs::search(&client5, &sem5, k, s))).await;
+        merge_batch(&app5, "infojobs", res)
+    };
+
+    let app6 = app.clone();
+    let qs6 = qs.clone();
+    let client6 = client.clone();
+    let sem6 = sem.clone();
+    let catho_task = async move {
+        let res = futures::future::join_all(qs6.iter().map(|(k, s)| sources::catho::search(&client6, &sem6, k, s))).await;
+        merge_batch(&app6, "catho", res)
+    };
+
+    let (g_jobs, li_jobs, v_jobs, tb_jobs, ij_jobs, c_jobs) =
+        tokio::join!(gupy_task, li_task, vagas_task, tb_task, ij_task, catho_task);
 
     let mut all = Vec::new();
-    let statuses = vec![
-        summarize("gupy", gupy_res, &mut all),
-        summarize("linkedin", li_res, &mut all),
-        summarize("vagas", vagas_res, &mut all),
-        summarize("trabalhabrasil", tb_res, &mut all),
-        summarize("infojobs", ij_res, &mut all),
-        summarize("catho", catho_res, &mut all),
-    ];
+    all.extend(g_jobs);
+    all.extend(li_jobs);
+    all.extend(v_jobs);
+    all.extend(tb_jobs);
+    all.extend(ij_jobs);
+    all.extend(c_jobs);
 
-    // Se houve busca com termo personalizado, preserva o histórico de vagas já encontradas
-    if custom_keyword.is_some() {
-        let cached = state.cached_jobs.lock().unwrap().clone();
-        all.extend(cached);
-    }
+    // Sempre preserva as vagas do cache persistente
+    let cached = state.cached_jobs.lock().unwrap().clone();
+    all.extend(cached);
 
     let final_jobs = dedupe_sort(all);
 
@@ -333,18 +418,17 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     }
 
     *state.cached_jobs.lock().unwrap() = final_jobs.clone();
-    *state.sources.lock().unwrap() = statuses;
+    save_cached_jobs_to_disk(app, &final_jobs);
     *state.last_check_at.lock().unwrap() = Some(Utc::now());
     state.scanning.store(false, Ordering::SeqCst);
     let _ = app.emit("jobs-updated", &final_jobs);
     emit_status(app);
 
-    // 2. Executa Indeed em background sem travar o retorno das 6 fontes rápidas
+    // Executa Indeed em background sem travar o retorno das 6 fontes rápidas
     let app_handle = app.clone();
     let qs_clone = qs.clone();
     tauri::async_runtime::spawn(async move {
         let mut indeed_results = Vec::new();
-        // Limita a 2 queries no Indeed em background para evitar sobrecarga de janelas
         for (k, s) in qs_clone.iter().take(2) {
             let r = sources::indeed::search(&app_handle, k, s).await;
             let blocked = r.as_ref().err().is_some_and(|e| e.contains("bloque") || e.contains("anti-rob") || e.contains("tempo"));
@@ -353,22 +437,7 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
                 break;
             }
         }
-        let state = app_handle.state::<AppState>();
-        let mut extra_jobs = Vec::new();
-        let status = summarize("indeed", indeed_results, &mut extra_jobs);
-        if !extra_jobs.is_empty() {
-            let mut cached = state.cached_jobs.lock().unwrap().clone();
-            cached.extend(extra_jobs);
-            let merged = dedupe_sort(cached);
-            *state.cached_jobs.lock().unwrap() = merged.clone();
-            let _ = app_handle.emit("jobs-updated", &merged);
-        }
-        {
-            let mut s = state.sources.lock().unwrap();
-            s.retain(|it| it.source != "indeed");
-            s.push(status);
-        }
-        emit_status(&app_handle);
+        merge_batch(&app_handle, "indeed", indeed_results);
     });
 
     final_jobs
@@ -376,12 +445,16 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
 
 fn start_worker(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        // Aguarda 10 segundos antes do primeiro ciclo em segundo plano para não competir com o frontend
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        // Aguarda 15 segundos antes do primeiro ciclo em segundo plano para não competir com a inicialização
+        tokio::time::sleep(Duration::from_secs(15)).await;
         loop {
             let state = app.state::<AppState>();
             if !state.paused.load(Ordering::SeqCst) {
-                scan(&app, None).await;
+                // Tenta adquirir lock; se houver busca ativa do usuário, pula para o próximo ciclo sem travar
+                if let Ok(_guard) = state.scan_lock.try_lock() {
+                    drop(_guard);
+                    scan(&app, None).await;
+                }
             }
             let next = Utc::now() + ChronoDuration::minutes(CHECK_INTERVAL_MIN);
             *state.next_check_at.lock().unwrap() = (!state.paused.load(Ordering::SeqCst)).then_some(next);
@@ -700,8 +773,14 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            tray::setup(app.handle())?;
-            start_worker(app.handle().clone());
+            let handle = app.handle();
+            let initial = load_cached_jobs_from_disk(handle);
+            if !initial.is_empty() {
+                let state = handle.state::<AppState>();
+                *state.cached_jobs.lock().unwrap() = initial;
+            }
+            tray::setup(handle)?;
+            start_worker(handle.clone());
             Ok(())
         })
         .run(tauri::generate_context!())
