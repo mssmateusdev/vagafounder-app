@@ -99,16 +99,12 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
           url: job.url,
           source: job.source,
         });
-        if (!isCancelled) {
+        if (!isCancelled && fetched) {
           setDescription(fetched);
         }
       } catch (err: any) {
         if (!isCancelled) {
-          setDescError(
-            typeof err === 'string' 
-              ? err 
-              : 'Não foi possível carregar a descrição detalhada desta vaga no momento.'
-          );
+          setDescError(err?.toString() || 'Descrição completa indisponível no momento.');
         }
       } finally {
         if (!isCancelled) {
@@ -131,7 +127,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
     const s = (source || '').toLowerCase();
     if (s.includes('gupy')) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
           <span className="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
           Gupy
         </span>
@@ -139,7 +135,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
     }
     if (s.includes('linkedin')) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#0A66C2]/10 text-[#0A66C2] border border-[#0A66C2]/20">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#0A66C2]/10 dark:bg-[#0A66C2]/20 text-[#0A66C2] dark:text-[#388be8] border border-[#0A66C2]/20 dark:border-[#0A66C2]/40">
           <span className="w-1.5 h-1.5 rounded-full bg-[#0A66C2]"></span>
           LinkedIn
         </span>
@@ -147,14 +143,46 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
     }
     if (s.includes('indeed')) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#003A9B]/10 text-[#003A9B] border border-[#003A9B]/25">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-[#003A9B]/10 dark:bg-[#003A9B]/25 text-[#003A9B] dark:text-[#528de8] border border-[#003A9B]/25 dark:border-[#003A9B]/40">
           <span className="w-1.5 h-1.5 rounded-full bg-[#003A9B]"></span>
           Indeed
         </span>
       );
     }
+    if (s.includes('vagas')) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+          Vagas.com
+        </span>
+      );
+    }
+    if (s.includes('trabalha')) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+          Trabalha Brasil
+        </span>
+      );
+    }
+    if (s.includes('infojobs')) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-orange-50 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800">
+          <span className="w-1.5 h-1.5 rounded-full bg-orange-600"></span>
+          InfoJobs
+        </span>
+      );
+    }
+    if (s.includes('catho')) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+          <span className="w-1.5 h-1.5 rounded-full bg-sky-600"></span>
+          Catho
+        </span>
+      );
+    }
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-100 dark:bg-[#1e1f22] text-slate-700 dark:text-[#dbdee1] border border-slate-200 dark:border-[#383a40]">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
         {source}
       </span>
@@ -166,38 +194,38 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-5 transition-all animate-in fade-in duration-150"
+      className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-5 transition-all animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div 
-        className="max-w-2xl w-full max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150"
+        className="max-w-2xl w-full max-h-[90vh] bg-white dark:bg-[#2b2d31] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-[#383a40] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="job-modal-title"
       >
         {/* ---------------- CABEÇALHO DO MODAL ---------------- */}
-        <div className="p-5 sm:p-6 border-b border-slate-100 flex items-start justify-between gap-4 shrink-0 bg-gradient-to-b from-slate-50/80 to-white">
+        <div className="p-5 sm:p-6 border-b border-slate-100 dark:border-[#383a40] flex items-start justify-between gap-4 shrink-0 bg-gradient-to-b from-slate-50/80 to-white dark:from-[#2b2d31] dark:to-[#2b2d31]">
           <div className="space-y-2.5 flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               {renderSourceBadge(job.source)}
               <span className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-bold ${
                 job.type.includes('Aprendiz')
-                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                  ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
                   : job.type.includes('RH')
-                  ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                  ? 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
                   : job.type.includes('Suporte')
-                  ? 'bg-cyan-100 text-cyan-800 border border-cyan-300'
+                  ? 'bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-800'
                   : job.type.includes('Estágio')
-                  ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                  ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
                   : job.type.includes('Auxiliar')
-                  ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                  : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
+                  : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
               }`}>
                 {job.type}
               </span>
               {isApplied && (
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded">
                   <CheckCircle2 size={12} className="stroke-[2.5]" />
                   Já me candidatei
                 </span>
@@ -205,23 +233,23 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
             </div>
 
             {/* Título completo da vaga sem truncamento */}
-            <h2 id="job-modal-title" className="text-lg sm:text-xl font-bold text-slate-900 leading-snug">
+            <h2 id="job-modal-title" className="text-lg sm:text-xl font-bold text-slate-900 dark:text-[#f2f3f5] leading-snug">
               {job.title}
             </h2>
 
             {/* Metadados: Empresa, Localidade e Data */}
-            <div className="flex items-center gap-y-1.5 gap-x-4 flex-wrap text-xs text-slate-600 font-medium">
-              <div className="flex items-center gap-1.5 text-slate-900 font-semibold">
+            <div className="flex items-center gap-y-1.5 gap-x-4 flex-wrap text-xs text-slate-600 dark:text-[#dbdee1] font-medium">
+              <div className="flex items-center gap-1.5 text-slate-900 dark:text-[#f2f3f5] font-semibold">
                 <Building2 size={14} className="text-slate-400 shrink-0" />
                 <span>{job.company}</span>
               </div>
 
-              <div className="flex items-center gap-1 text-slate-600">
+              <div className="flex items-center gap-1 text-slate-600 dark:text-[#dbdee1]">
                 <MapPin size={13} className="text-indigo-500 shrink-0" />
                 <span>{formatLocation(job.location, job.modality)}</span>
               </div>
 
-              <div className="flex items-center gap-1 text-slate-500">
+              <div className="flex items-center gap-1 text-slate-500 dark:text-[#949ba4]">
                 <Clock size={13} className="text-slate-400 shrink-0" />
                 <span>
                   {formatDistanceToNow(new Date(job.publishedAt), { addSuffix: true, locale: ptBR })}
@@ -233,14 +261,14 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
             {(job.salary || (job.benefits && job.benefits.length > 0)) && (
               <div className="flex items-center gap-2 flex-wrap pt-1">
                 {job.salary && (
-                  <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-2.5 py-0.5 rounded-lg">
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 px-2.5 py-0.5 rounded-lg">
                     <DollarSign size={12} className="stroke-[2.5]" />
                     {job.salary}
                   </span>
                 )}
                 {job.benefits && job.benefits.map((b, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
-                    <Gift size={11} className="text-indigo-600" />
+                  <span key={i} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 dark:text-[#dbdee1] bg-slate-100 dark:bg-[#1e1f22] border border-slate-200 dark:border-[#383a40] px-2 py-0.5 rounded-md">
+                    <Gift size={11} className="text-indigo-500" />
                     {b}
                   </span>
                 ))}
@@ -250,7 +278,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
 
           <button 
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-2 rounded-xl transition-colors cursor-pointer shrink-0"
+            className="text-slate-400 hover:text-slate-700 dark:hover:text-[#f2f3f5] hover:bg-slate-100 dark:hover:bg-[#35373c] p-2 rounded-xl transition-colors cursor-pointer shrink-0"
             title="Fechar (ESC)"
             aria-label="Fechar modal"
           >
@@ -261,12 +289,12 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
         {/* ---------------- CORPO SCROLLÁVEL DO MODAL ---------------- */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <FileText size={16} className="text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-[#f2f3f5] flex items-center gap-2">
+              <FileText size={16} className="text-indigo-500" />
               <span>Sobre a Vaga / Descrição</span>
             </h3>
             {job.source && (
-              <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
+              <span className="text-[11px] text-slate-400 dark:text-[#949ba4] font-medium flex items-center gap-1">
                 <Sparkles size={12} className="text-amber-500" />
                 Coletado via {job.source.toUpperCase()}
               </span>
@@ -275,31 +303,31 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
 
           {/* Estado de Carregamento da Descrição */}
           {isLoadingDesc && (
-            <div className="py-12 flex flex-col items-center justify-center space-y-3 bg-slate-50/60 rounded-xl border border-slate-100">
-              <Loader2 size={28} className="animate-spin text-indigo-600" />
-              <p className="text-xs font-semibold text-slate-600">
+            <div className="py-12 flex flex-col items-center justify-center space-y-3 bg-slate-50/60 dark:bg-[#1e1f22]/60 rounded-xl border border-slate-100 dark:border-[#383a40]">
+              <Loader2 size={28} className="animate-spin text-indigo-500" />
+              <p className="text-xs font-semibold text-slate-600 dark:text-[#dbdee1]">
                 Carregando descrição completa diretamente da plataforma...
               </p>
-              <div className="w-48 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                <div className="w-1/2 h-full bg-indigo-600 rounded-full animate-pulse"></div>
+              <div className="w-48 h-1.5 bg-slate-200 dark:bg-[#383a40] rounded-full overflow-hidden">
+                <div className="w-1/2 h-full bg-indigo-500 rounded-full animate-pulse"></div>
               </div>
             </div>
           )}
 
           {/* Erro ou Descrição Não Disponível */}
           {!isLoadingDesc && descError && (
-            <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 text-xs space-y-2">
-              <div className="flex items-center gap-2 text-amber-800 font-bold">
+            <div className="bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl p-4 text-xs space-y-2">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-bold">
                 <AlertCircle size={15} />
                 <span>Aviso sobre os detalhes</span>
               </div>
-              <p className="text-amber-700 leading-relaxed">
+              <p className="text-amber-700 dark:text-amber-300/90 leading-relaxed">
                 {descError}
               </p>
               <div className="pt-1">
                 <button
                   onClick={() => onOpenLink(job.url)}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 hover:text-indigo-900 underline cursor-pointer"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-400 hover:text-indigo-900 underline cursor-pointer"
                 >
                   Abrir link oficial da vaga no navegador para ver o anúncio original completo
                   <ExternalLink size={12} />
@@ -310,14 +338,14 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
 
           {/* Conteúdo da Descrição Formatado */}
           {!isLoadingDesc && description && (
-            <div className="bg-slate-50/50 rounded-xl p-4 sm:p-5 border border-slate-200/80">
+            <div className="bg-slate-50/50 dark:bg-[#1e1f22] rounded-xl p-4 sm:p-5 border border-slate-200/80 dark:border-[#383a40]">
               {hasHtml ? (
                 <div 
-                  className="text-xs sm:text-sm text-slate-700 leading-relaxed space-y-2 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>p]:mb-2 [&>strong]:font-bold [&>b]:font-bold"
+                  className="text-xs sm:text-sm text-slate-700 dark:text-[#dbdee1] leading-relaxed space-y-2 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>p]:mb-2 [&>strong]:font-bold [&>b]:font-bold"
                   dangerouslySetInnerHTML={{ __html: description }}
                 />
               ) : (
-                <div className="whitespace-pre-line text-xs sm:text-sm text-slate-700 leading-relaxed font-normal">
+                <div className="whitespace-pre-line text-xs sm:text-sm text-slate-700 dark:text-[#dbdee1] leading-relaxed font-normal">
                   {description}
                 </div>
               )}
@@ -326,11 +354,11 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
         </div>
 
         {/* ---------------- RODAPÉ DO MODAL ---------------- */}
-        <div className="px-5 sm:px-6 py-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between flex-wrap gap-3 shrink-0">
+        <div className="px-5 sm:px-6 py-4 bg-slate-50 dark:bg-[#232428] border-t border-slate-200/80 dark:border-[#383a40] flex items-center justify-between flex-wrap gap-3 shrink-0">
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-all cursor-pointer"
+              className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#383a40] bg-white dark:bg-[#2b2d31] text-slate-700 dark:text-[#dbdee1] hover:bg-slate-100 dark:hover:bg-[#35373c] text-xs font-semibold transition-all cursor-pointer"
             >
               Fechar
             </button>
@@ -339,8 +367,8 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
               onClick={() => onToggleFavorite(job.id)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
                 isFavorite 
-                  ? 'bg-amber-50 border-amber-300 text-amber-600' 
-                  : 'bg-white border-slate-200 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50'
+                  ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400' 
+                  : 'bg-white dark:bg-[#2b2d31] border-slate-200 dark:border-[#383a40] text-slate-600 dark:text-[#dbdee1] hover:text-amber-600 hover:bg-amber-50/50'
               }`}
               title={isFavorite ? "Remover dos favoritos" : "Salvar vaga"}
             >
@@ -352,8 +380,8 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
               onClick={() => onToggleApplied(job.id)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
                 isApplied 
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold' 
-                  : 'bg-white border-slate-200 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/50'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-bold' 
+                  : 'bg-white dark:bg-[#2b2d31] border-slate-200 dark:border-[#383a40] text-slate-600 dark:text-[#dbdee1] hover:text-emerald-700 hover:bg-emerald-50/50'
               }`}
               title={isApplied ? "Remover candidatura" : "Marcar como já me candidatei"}
             >
@@ -364,10 +392,10 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
             {onSendToKanban && (
               <button
                 onClick={() => onSendToKanban(job)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition-all cursor-pointer"
                 title="Adicionar esta vaga ao seu Funil de Candidaturas (Kanban)"
               >
-                <Trophy size={14} />
+                <Trophy size={14} className="text-amber-500" />
                 <span>Adicionar ao Funil</span>
               </button>
             )}

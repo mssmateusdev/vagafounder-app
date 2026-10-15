@@ -6,4 +6,27 @@
   body {
     @apply bg-slate-50 text-slate-900 m-0 p-0 font-sans;
   }
+  .dark body {
+    background-color: #313338;
+    color: #dbdee1;
+  }
+}
+
+/* Scrollbars personalizadas estilo Discord */
+.dark ::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #2b2d31;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #1e1f22;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #111214;
 }

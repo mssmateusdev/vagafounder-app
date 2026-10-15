@@ -214,9 +214,9 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     };
 
     let client = sources::client();
-    let sem = Semaphore::new(8);
+    let sem = Semaphore::new(32);
 
-    // 1. Executa todas as fontes HTTP rápidas em paralelo:
+    // 1. Executa todas as 6 fontes HTTP em paralelo com semáforo de 32 requisições:
     // Gupy, LinkedIn, Vagas.com, Trabalha Brasil, InfoJobs e Catho!
     let gupy_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::gupy::search(&client, &sem, k, s)));
     let li_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::linkedin::search(&client, &sem, k, s)));
@@ -229,7 +229,7 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
         tokio::join!(gupy_f, li_f, vagas_f, tb_f, ij_f, catho_f);
 
     let mut all = Vec::new();
-    let mut statuses = vec![
+    let statuses = vec![
         summarize("gupy", gupy_res, &mut all),
         summarize("linkedin", li_res, &mut all),
         summarize("vagas", vagas_res, &mut all),
@@ -244,24 +244,6 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
         all.extend(cached);
     }
 
-    let mid_jobs = dedupe_sort(all.clone());
-    *state.cached_jobs.lock().unwrap() = mid_jobs.clone();
-    *state.sources.lock().unwrap() = statuses.clone();
-    // Emite IMEDIATAMENTE para o frontend! O usuário já vê as primeiras vagas em segundos!
-    let _ = app.emit("jobs-updated", &mid_jobs);
-    emit_status(app);
-
-    // 2. Executa Indeed de forma não-bloqueante
-    let mut indeed_results = Vec::new();
-    for (k, s) in &qs {
-        let r = sources::indeed::search(app, k, s).await;
-        let blocked = r.as_ref().err().is_some_and(|e| e.contains("bloque") || e.contains("anti-rob") || e.contains("tempo"));
-        indeed_results.push(r);
-        if blocked {
-            break; // não insiste se o Indeed bloquear/der timeout
-        }
-    }
-    statuses.push(summarize("indeed", indeed_results, &mut all));
     let final_jobs = dedupe_sort(all);
 
     // Notifica somente vagas novas (na primeira varredura apenas registra, para não inundar).
@@ -356,11 +338,46 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     state.scanning.store(false, Ordering::SeqCst);
     let _ = app.emit("jobs-updated", &final_jobs);
     emit_status(app);
+
+    // 2. Executa Indeed em background sem travar o retorno das 6 fontes rápidas
+    let app_handle = app.clone();
+    let qs_clone = qs.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut indeed_results = Vec::new();
+        // Limita a 2 queries no Indeed em background para evitar sobrecarga de janelas
+        for (k, s) in qs_clone.iter().take(2) {
+            let r = sources::indeed::search(&app_handle, k, s).await;
+            let blocked = r.as_ref().err().is_some_and(|e| e.contains("bloque") || e.contains("anti-rob") || e.contains("tempo"));
+            indeed_results.push(r);
+            if blocked {
+                break;
+            }
+        }
+        let state = app_handle.state::<AppState>();
+        let mut extra_jobs = Vec::new();
+        let status = summarize("indeed", indeed_results, &mut extra_jobs);
+        if !extra_jobs.is_empty() {
+            let mut cached = state.cached_jobs.lock().unwrap().clone();
+            cached.extend(extra_jobs);
+            let merged = dedupe_sort(cached);
+            *state.cached_jobs.lock().unwrap() = merged.clone();
+            let _ = app_handle.emit("jobs-updated", &merged);
+        }
+        {
+            let mut s = state.sources.lock().unwrap();
+            s.retain(|it| it.source != "indeed");
+            s.push(status);
+        }
+        emit_status(&app_handle);
+    });
+
     final_jobs
 }
 
 fn start_worker(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        // Aguarda 10 segundos antes do primeiro ciclo em segundo plano para não competir com o frontend
+        tokio::time::sleep(Duration::from_secs(10)).await;
         loop {
             let state = app.state::<AppState>();
             if !state.paused.load(Ordering::SeqCst) {

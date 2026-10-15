@@ -72,9 +72,9 @@ pub async fn search(client: &Client, sem: &Semaphore, keyword: &str, scope: &Sco
     let recife = "Recife, Pernambuco, Brasil".to_string();
     let remote = |pages| Plan { location: "Brasil".into(), distance: None, remote: true, pages };
     let plans = match scope {
-        Scope::Metro => vec![Plan { location: recife, distance: Some(50), remote: false, pages: 5 }, remote(2)],
-        Scope::Remote => vec![remote(4)],
-        Scope::Custom(loc) => vec![Plan { location: loc.clone(), distance: Some(50), remote: false, pages: 3 }],
+        Scope::Metro => vec![Plan { location: recife, distance: Some(50), remote: false, pages: 2 }, remote(1)],
+        Scope::Remote => vec![remote(2)],
+        Scope::Custom(loc) => vec![Plan { location: loc.clone(), distance: Some(50), remote: false, pages: 2 }],
     };
     let metro_only = matches!(scope, Scope::Metro);
     let kw = enc(&strip_accents(keyword));

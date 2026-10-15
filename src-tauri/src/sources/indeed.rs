@@ -90,7 +90,7 @@ async fn fetch_payload(app: &AppHandle, url: &str) -> Result<Value, String> {
         .build()
         .map_err(|e| format!("Falha ao abrir janela do Indeed: {e}"))?;
 
-    let result = tokio::time::timeout(Duration::from_secs(6), rx).await;
+    let result = tokio::time::timeout(Duration::from_secs(3), rx).await;
     let _ = window.close();
 
     let raw = result.map_err(|_| "Indeed não respondeu a tempo (possível verificação anti-robô)".to_string())?
@@ -101,7 +101,7 @@ async fn fetch_payload(app: &AppHandle, url: &str) -> Result<Value, String> {
 pub async fn search(app: &AppHandle, keyword: &str, scope: &Scope) -> Result<Vec<Job>, String> {
     let mut all_raw_jobs = Vec::new();
 
-    // Primeira página (start=0)
+    // Primeira página rápida (start=0)
     let payload = fetch_payload(app, &search_url(keyword, scope, 0)).await?;
     if payload["ok"].as_bool() != Some(true) {
         return Err(format!("Indeed bloqueou a busca ({})", payload["error"].as_str().unwrap_or("desconhecido")));
@@ -109,17 +109,6 @@ pub async fn search(app: &AppHandle, keyword: &str, scope: &Scope) -> Result<Vec
 
     if let Some(jobs) = payload["jobs"].as_array() {
         all_raw_jobs.extend(jobs.clone());
-
-        // Se a primeira página trouxe vagas, tenta uma segunda página rapidamente
-        if !jobs.is_empty() {
-            if let Ok(next_payload) = fetch_payload(app, &search_url(keyword, scope, 10)).await {
-                if next_payload["ok"].as_bool() == Some(true) {
-                    if let Some(next_jobs) = next_payload["jobs"].as_array() {
-                        all_raw_jobs.extend(next_jobs.clone());
-                    }
-                }
-            }
-        }
     }
 
     let metro_only = matches!(scope, Scope::Metro);

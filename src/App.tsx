@@ -67,13 +67,13 @@ const PRESET_NOTIFICATION_ROLES = [
 ];
 
 const PLATFORMS_INFO = [
-  { id: 'gupy', name: 'Gupy', type: 'JSON API Direta', color: 'indigo', latency: '420ms' },
-  { id: 'linkedin', name: 'LinkedIn', type: 'Guest API Oficial', color: 'blue', latency: '780ms' },
-  { id: 'indeed', name: 'Indeed', type: 'Busca Integrada', color: 'sky', latency: '1.2s' },
-  { id: 'vagas', name: 'Vagas.com', type: 'Web Scraper SSR', color: 'rose', latency: '650ms' },
-  { id: 'trabalhabrasil', name: 'Trabalha Brasil (SINE)', type: 'Web Scraper SSR', color: 'emerald', latency: '540ms' },
-  { id: 'infojobs', name: 'InfoJobs', type: 'Web Scraper SSR', color: 'orange', latency: '810ms' },
-  { id: 'catho', name: 'Catho', type: 'Web Scraper SSR', color: 'cyan', latency: '890ms' },
+  { id: 'gupy', name: 'Gupy', type: 'JSON API Direta', latency: '~350ms' },
+  { id: 'linkedin', name: 'LinkedIn', type: 'Guest API Paginada', latency: '~600ms' },
+  { id: 'indeed', name: 'Indeed', type: 'Busca Integrada', latency: '~1.5s' },
+  { id: 'vagas', name: 'Vagas.com', type: 'Web Scraper SSR', latency: '~450ms' },
+  { id: 'trabalhabrasil', name: 'Trabalha Brasil (SINE)', type: 'Web Scraper SSR', latency: '~400ms' },
+  { id: 'infojobs', name: 'InfoJobs', type: 'Web Scraper SSR', latency: '~650ms' },
+  { id: 'catho', name: 'Catho', type: 'Web Scraper SSR', latency: '~700ms' },
 ];
 
 export default function App() {
@@ -139,7 +139,7 @@ export default function App() {
   // Referência do input de busca para atalho Ctrl+K
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Modo Escuro / Claro
+  // Modo Escuro Estilo Discord / Claro
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('vagafounder_theme');
@@ -254,10 +254,9 @@ export default function App() {
     localStorage.setItem('vagafounder_notify_kws', JSON.stringify(customNotifyKeywords));
   }, [customNotifyKeywords]);
 
-  // Carregar dados e inicializar
+  // Carregar dados e inicializar com máxima velocidade
   useEffect(() => {
     async function init() {
-      setIsLoading(true);
       try {
         try {
           const status = await invoke<MonitorStatus>('get_status');
@@ -290,16 +289,22 @@ export default function App() {
           console.warn('Configurações externas indisponíveis:', e);
         }
 
+        // Tenta carregar do cache instantâneo primeiro
         const cached = await invoke<Job[]>('get_jobs');
         if (cached && cached.length > 0) {
           setJobs(cached);
+          setIsLoading(false);
         } else {
+          // Se não houver cache, dispara primeira varredura rápida
+          setIsLoading(true);
           const fetchedJobs = await invoke<Job[]>('scan_now', { keyword: null });
-          setJobs(fetchedJobs);
+          if (fetchedJobs && fetchedJobs.length > 0) {
+            setJobs(fetchedJobs);
+          }
+          setIsLoading(false);
         }
       } catch (err) {
         console.error('Erro na inicialização:', err);
-      } finally {
         setIsLoading(false);
       }
     }
@@ -340,7 +345,7 @@ export default function App() {
     }, 4000);
   };
 
-  // Buscar vagas na Web (Rust backend em paralelo nas 7 fontes)
+  // Buscar vagas na Web (Otimizado: retorno veloz em ~1.5s das 6 fontes HTTP + Indeed assíncrono)
   const handleSearchWeb = async (customKw?: string) => {
     const term = (customKw !== undefined ? customKw : searchQuery).trim();
     setIsLoading(true);
@@ -673,7 +678,7 @@ export default function App() {
       );
     }
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-[#1e1f22] text-slate-700 dark:text-[#dbdee1] border border-slate-200 dark:border-[#383a40] shadow-2xs">
         <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
         {source}
       </span>
@@ -691,28 +696,31 @@ export default function App() {
     setCurrentPage(1);
   };
 
-  // Filtragem e Ordenação
+  // Filtragem e Ordenação Ultrarrápida no Cliente
   const filteredAndSortedJobs = useMemo(() => {
+    const searchLower = searchQuery.trim().toLowerCase();
+
     const filtered = jobs.filter(job => {
       const isDismissed = dismissedJobs.includes(job.id);
       if (!showDismissed && isDismissed && activeTab !== 'history') {
         return false;
       }
 
-      const titleLower = (job.title || '').toLowerCase();
-      const companyLower = (job.company || '').toLowerCase();
-      const locLower = (job.location || '').toLowerCase();
-      const searchLower = searchQuery.toLowerCase();
-
-      // Busca textual em tempo real
-      const matchesSearch = searchQuery === '' || 
-        titleLower.includes(searchLower) ||
-        companyLower.includes(searchLower) ||
-        locLower.includes(searchLower);
+      // Busca textual instantânea
+      if (searchLower !== '') {
+        const titleLower = (job.title || '').toLowerCase();
+        const companyLower = (job.company || '').toLowerCase();
+        const locLower = (job.location || '').toLowerCase();
+        if (!titleLower.includes(searchLower) && !companyLower.includes(searchLower) && !locLower.includes(searchLower)) {
+          return false;
+        }
+      }
 
       // Fonte
       const jobSourceLower = (job.source || '').toLowerCase();
-      const matchesSource = selectedSource === 'ALL' || jobSourceLower.includes(selectedSource.toLowerCase());
+      if (selectedSource !== 'ALL' && !jobSourceLower.includes(selectedSource.toLowerCase())) {
+        return false;
+      }
 
       // Filtros de Salário e Benefícios
       if (filterWithSalaryOnly && !job.salary) {
@@ -723,71 +731,53 @@ export default function App() {
       }
 
       // Local / Modalidade
-      let matchesCity = true;
-      if (selectedCityFilter === 'RECIFE') {
-        matchesCity = locLower.includes('recife');
-      } else if (selectedCityFilter === 'JABOATAO') {
-        matchesCity = locLower.includes('jaboat') || locLower.includes('jaboatão');
-      } else if (selectedCityFilter === 'METRO_80KM') {
-        matchesCity = locLower.includes('recife') || locLower.includes('jaboat') || locLower.includes('olinda') || 
-          locLower.includes('paulista') || locLower.includes('camaragibe') || locLower.includes('cabo') || 
-          locLower.includes('ipojuca') || locLower.includes('igarassu') || locLower.includes('moreno') || 
-          locLower.includes('goiana') || locLower.includes('vitoria') || locLower.includes('pernambuco') ||
-          locLower.includes('remot');
-      } else if (selectedCityFilter === 'REMOTO') {
-        matchesCity = locLower.includes('remoto');
-      } else if (selectedCityFilter === 'PRESENCIAL') {
-        matchesCity = locLower.includes('presencial') || (!locLower.includes('remoto') && !locLower.includes('híbrido') && !locLower.includes('hibrido'));
-      } else if (selectedCityFilter === 'HIBRIDO') {
-        matchesCity = locLower.includes('híbrido') || locLower.includes('hibrido');
+      if (selectedCityFilter !== 'ALL') {
+        const locLower = (job.location || '').toLowerCase();
+        if (selectedCityFilter === 'RECIFE' && !locLower.includes('recife')) return false;
+        if (selectedCityFilter === 'JABOATAO' && !locLower.includes('jaboat')) return false;
+        if (selectedCityFilter === 'METRO_80KM') {
+          const inMetro = locLower.includes('recife') || locLower.includes('jaboat') || locLower.includes('olinda') || 
+            locLower.includes('paulista') || locLower.includes('camaragibe') || locLower.includes('cabo') || 
+            locLower.includes('ipojuca') || locLower.includes('igarassu') || locLower.includes('moreno') || 
+            locLower.includes('goiana') || locLower.includes('vitoria') || locLower.includes('pernambuco') ||
+            locLower.includes('remot');
+          if (!inMetro) return false;
+        }
+        if (selectedCityFilter === 'REMOTO' && !locLower.includes('remoto')) return false;
+        if (selectedCityFilter === 'PRESENCIAL' && locLower.includes('remoto')) return false;
+        if (selectedCityFilter === 'HIBRIDO' && !locLower.includes('híbrido') && !locLower.includes('hibrido')) return false;
       }
 
       // Área / Cargo
-      let matchesRole = true;
-      const typeLower = (job.type || '').toLowerCase();
-      if (selectedRoleFilter === 'ADMIN') {
-        matchesRole = titleLower.includes('auxiliar') || titleLower.includes('administrativ') || titleLower.includes('assistente') || typeLower.includes('auxiliar');
-      } else if (selectedRoleFilter === 'RH') {
-        matchesRole = titleLower.includes('rh') || 
-          titleLower.includes('recursos humanos') || 
-          titleLower.includes('departamento pessoal') || 
-          titleLower.includes('recrutamento') || 
-          titleLower.includes('gestao de pessoas') || 
-          titleLower.includes('gestão de pessoas') || 
-          titleLower.includes('talent') || 
-          typeLower.includes('rh');
-      } else if (selectedRoleFilter === 'SUPORTE') {
-        matchesRole = titleLower.includes('suporte') || 
-          titleLower.includes('helpdesk') || 
-          titleLower.includes('help desk') || 
-          titleLower.includes('service desk') || 
-          titleLower.includes('tecnico de ti') || 
-          titleLower.includes('técnico de ti') || 
-          titleLower.includes('informatica') || 
-          titleLower.includes('informática') || 
-          titleLower.includes('redes') || 
-          titleLower.includes('infraestrutura') || 
-          typeLower.includes('suporte');
-      } else if (selectedRoleFilter === 'APRENDIZ') {
-        matchesRole = titleLower.includes('aprendiz') || typeLower.includes('aprendiz');
-      } else if (selectedRoleFilter === 'ESTAGIO') {
-        matchesRole = titleLower.includes('estágio') || titleLower.includes('estagio') || typeLower.includes('estágio') || typeLower.includes('estagio');
-      } else if (selectedRoleFilter === 'ATENDIMENTO') {
-        matchesRole = titleLower.includes('atendente') || titleLower.includes('recep') || titleLower.includes('caixa') || titleLower.includes('suporte ao cliente') || titleLower.includes('vendas');
-      } else if (selectedRoleFilter === 'DEV') {
-        matchesRole = titleLower.includes('desenvolvedor') || titleLower.includes('software') || titleLower.includes('programador') || titleLower.includes('dev') || titleLower.includes('frontend') || titleLower.includes('backend');
+      if (selectedRoleFilter !== 'ALL') {
+        const titleLower = (job.title || '').toLowerCase();
+        const typeLower = (job.type || '').toLowerCase();
+        if (selectedRoleFilter === 'ADMIN') {
+          if (!titleLower.includes('auxiliar') && !titleLower.includes('administrativ') && !titleLower.includes('assistente') && !typeLower.includes('auxiliar')) return false;
+        } else if (selectedRoleFilter === 'RH') {
+          if (!titleLower.includes('rh') && !titleLower.includes('recursos humanos') && !titleLower.includes('departamento pessoal') && !titleLower.includes('recrutamento') && !typeLower.includes('rh')) return false;
+        } else if (selectedRoleFilter === 'SUPORTE') {
+          if (!titleLower.includes('suporte') && !titleLower.includes('helpdesk') && !titleLower.includes('tecnico') && !titleLower.includes('técnico') && !titleLower.includes('informatica') && !titleLower.includes('informática') && !typeLower.includes('suporte')) return false;
+        } else if (selectedRoleFilter === 'APRENDIZ') {
+          if (!titleLower.includes('aprendiz') && !typeLower.includes('aprendiz')) return false;
+        } else if (selectedRoleFilter === 'ESTAGIO') {
+          if (!titleLower.includes('estágio') && !titleLower.includes('estagio') && !typeLower.includes('estágio') && !typeLower.includes('estagio')) return false;
+        } else if (selectedRoleFilter === 'ATENDIMENTO') {
+          if (!titleLower.includes('atendente') && !titleLower.includes('recep') && !titleLower.includes('caixa') && !titleLower.includes('atendimento')) return false;
+        } else if (selectedRoleFilter === 'DEV') {
+          if (!titleLower.includes('desenvolvedor') && !titleLower.includes('software') && !titleLower.includes('programador') && !titleLower.includes('dev') && !titleLower.includes('frontend') && !titleLower.includes('backend')) return false;
+        }
       }
 
       // Período
-      let matchesTime = true;
       if (selectedTimeFilter !== 'ALL') {
         const pubTime = new Date(job.publishedAt).getTime();
         if (!isNaN(pubTime)) {
           const diffHours = (Date.now() - pubTime) / (1000 * 60 * 60);
-          if (selectedTimeFilter === '24H') matchesTime = diffHours <= 24;
-          else if (selectedTimeFilter === '3D') matchesTime = diffHours <= 72;
-          else if (selectedTimeFilter === '7D') matchesTime = diffHours <= 168;
-          else if (selectedTimeFilter === '30D') matchesTime = diffHours <= 720;
+          if (selectedTimeFilter === '24H' && diffHours > 24) return false;
+          if (selectedTimeFilter === '3D' && diffHours > 72) return false;
+          if (selectedTimeFilter === '7D' && diffHours > 168) return false;
+          if (selectedTimeFilter === '30D' && diffHours > 720) return false;
         }
       }
 
@@ -796,10 +786,10 @@ export default function App() {
         const isFav = favorites.includes(job.id);
         const isApp = appliedJobs.includes(job.id);
         const matchHistory = historySubTab === 'favorites' ? isFav : isApp;
-        return matchesSearch && matchesSource && matchesCity && matchesRole && matchesTime && matchHistory;
+        if (!matchHistory) return false;
       }
 
-      return matchesSearch && matchesSource && matchesCity && matchesRole && matchesTime;
+      return true;
     });
 
     return filtered.sort((a, b) => {
@@ -911,26 +901,26 @@ export default function App() {
   }, [monitorStatus]);
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-100 antialiased overflow-hidden select-none">
+    <div className="flex h-screen bg-slate-50 dark:bg-discord-main font-sans text-slate-800 dark:text-discord-text antialiased overflow-hidden select-none transition-colors">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-slate-900 dark:bg-slate-800 text-white rounded-xl shadow-2xl border border-slate-700 dark:border-slate-600 animate-in slide-in-from-bottom duration-200">
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-slate-900 dark:bg-discord-card text-white dark:text-discord-header rounded-xl shadow-2xl border border-slate-700 dark:border-discord-border animate-in slide-in-from-bottom duration-200">
           <ExternalLink size={16} className="text-emerald-400 shrink-0" />
           <span className="text-xs font-semibold">{toastMessage}</span>
         </div>
       )}
 
-      {/* ---------------- SIDEBAR ---------------- */}
-      <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-slate-900 dark:bg-slate-950 flex flex-col justify-between shrink-0 shadow-2xl border-r border-slate-800 transition-all duration-300 ease-in-out z-20`}>
+      {/* ---------------- SIDEBAR (Estilo Discord) ---------------- */}
+      <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-slate-900 dark:bg-discord-darkest flex flex-col justify-between shrink-0 shadow-2xl border-r border-slate-800 dark:border-discord-borderSubtle transition-all duration-300 ease-in-out z-20`}>
         <div>
-          <div className="p-4 flex items-center justify-between border-b border-slate-800/80">
+          <div className="p-4 flex items-center justify-between border-b border-slate-800/80 dark:border-discord-borderSubtle">
             <div className="flex items-center gap-3 overflow-hidden">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-emerald-500 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30 shrink-0">
                 <Briefcase size={20} className="stroke-[2.5]" />
               </div>
               {!isSidebarCollapsed && (
                 <div className="truncate">
-                  <h1 className="text-white font-bold text-base tracking-tight leading-none">VagaFounder</h1>
+                  <h1 className="text-white dark:text-discord-header font-bold text-base tracking-tight leading-none">VagaFounder</h1>
                   <p className="text-[11px] text-emerald-400 font-semibold tracking-wide mt-1">by: MateusDeveloper</p>
                 </div>
               )}
@@ -938,7 +928,7 @@ export default function App() {
 
             <button 
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              className="p-1.5 text-slate-400 hover:text-white dark:hover:text-discord-header hover:bg-slate-800 dark:hover:bg-discord-hover rounded-lg transition-colors cursor-pointer"
               title={isSidebarCollapsed ? "Expandir barra lateral" : "Recolher barra lateral"}
             >
               {isSidebarCollapsed ? <PanelLeft size={17} /> : <PanelLeftClose size={17} />}
@@ -951,26 +941,26 @@ export default function App() {
               className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 cursor-pointer ${
                 activeTab === 'jobs' 
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-semibold' 
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  : 'text-slate-400 dark:text-discord-muted hover:text-slate-200 dark:hover:text-discord-header hover:bg-slate-800/60 dark:hover:bg-discord-hover/60'
               }`}
               title="Painel de Vagas"
             >
               <Briefcase size={18} className="shrink-0" />
               {!isSidebarCollapsed && <span>Painel de Vagas</span>}
               {!isSidebarCollapsed && jobs.length > 0 && (
-                <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-semibold border border-slate-700">
+                <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-slate-800 dark:bg-discord-input text-slate-300 dark:text-discord-text font-semibold border border-slate-700 dark:border-discord-border">
                   {jobs.length}
                 </span>
               )}
             </button>
 
-            {/* Novo: Funil de Candidaturas (Kanban) */}
+            {/* Funil de Candidaturas (Kanban) */}
             <button 
               onClick={() => setActiveTab('kanban')}
               className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 cursor-pointer ${
                 activeTab === 'kanban' 
                   ? 'bg-gradient-to-r from-indigo-600 to-emerald-600 text-white shadow-md shadow-indigo-600/30 font-bold' 
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  : 'text-slate-400 dark:text-discord-muted hover:text-slate-200 dark:hover:text-discord-header hover:bg-slate-800/60 dark:hover:bg-discord-hover/60'
               }`}
               title="Funil de Candidaturas (Kanban)"
             >
@@ -988,7 +978,7 @@ export default function App() {
               className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 cursor-pointer ${
                 activeTab === 'history' 
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-semibold' 
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  : 'text-slate-400 dark:text-discord-muted hover:text-slate-200 dark:hover:text-discord-header hover:bg-slate-800/60 dark:hover:bg-discord-hover/60'
               }`}
               title="Candidaturas e Favoritos"
             >
@@ -1006,7 +996,7 @@ export default function App() {
               className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 cursor-pointer ${
                 activeTab === 'settings' 
                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-semibold' 
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  : 'text-slate-400 dark:text-discord-muted hover:text-slate-200 dark:hover:text-discord-header hover:bg-slate-800/60 dark:hover:bg-discord-hover/60'
               }`}
               title="Configurações & Notificações"
             >
@@ -1017,11 +1007,11 @@ export default function App() {
         </div>
 
         {/* Rodapé da Sidebar */}
-        <div className="p-3 border-t border-slate-800/80">
-          <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-800">
+        <div className="p-3 border-t border-slate-800/80 dark:border-discord-borderSubtle">
+          <div className="bg-slate-800/60 dark:bg-discord-card rounded-xl p-3 border border-slate-800 dark:border-discord-border">
             <div className="flex items-center justify-between mb-1">
               {!isSidebarCollapsed && (
-                <span className="text-xs font-semibold text-slate-300">
+                <span className="text-xs font-semibold text-slate-300 dark:text-discord-header">
                   {monitorStatus?.paused ? 'Monitor Pausado' : '7 Fontes Monitoradas'}
                 </span>
               )}
@@ -1033,7 +1023,7 @@ export default function App() {
               </span>
             </div>
             {!isSidebarCollapsed && (
-              <p className="text-[11px] text-slate-400 leading-tight">
+              <p className="text-[11px] text-slate-400 dark:text-discord-muted leading-tight">
                 Gupy, LinkedIn, Indeed, Vagas, Trab. Brasil, InfoJobs e Catho
               </p>
             )}
@@ -1044,23 +1034,23 @@ export default function App() {
       {/* ---------------- CONTEÚDO PRINCIPAL ---------------- */}
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         {/* Topbar Superior */}
-        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200/90 dark:border-slate-800 flex items-center justify-between px-6 shrink-0 gap-4 transition-colors">
+        <header className="h-16 bg-white dark:bg-discord-card border-b border-slate-200/90 dark:border-discord-border flex items-center justify-between px-6 shrink-0 gap-4 transition-colors">
           <div className="flex items-center gap-3 shrink-0">
             <button 
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 cursor-pointer"
+              className="p-2 text-slate-500 hover:text-slate-800 dark:text-discord-muted dark:hover:text-discord-header hover:bg-slate-100 dark:hover:bg-discord-hover rounded-xl transition-all border border-slate-200 dark:border-discord-border cursor-pointer"
               title="Alternar barra lateral"
             >
               {isSidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
             </button>
 
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-discord-muted font-medium">
               <span>Dashboard</span>
               <span>/</span>
-              <span className="text-slate-900 dark:text-slate-100 font-semibold capitalize">
+              <span className="text-slate-900 dark:text-discord-header font-semibold capitalize">
                 {activeTab === 'jobs' ? 'Vagas Recentes' : activeTab === 'kanban' ? 'Funil de Candidaturas' : activeTab === 'history' ? 'Minhas Vagas' : 'Configurações'}
               </span>
-              <span className="text-slate-300 dark:text-slate-700">•</span>
+              <span className="text-slate-300 dark:text-discord-border">•</span>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold border border-indigo-200/70 dark:border-indigo-800 shadow-2xs">
                 by: MateusDeveloper
               </span>
@@ -1069,7 +1059,7 @@ export default function App() {
 
           <div className="flex items-center gap-3 flex-wrap justify-end">
             {/* Status do Monitor */}
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100/90 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100/90 dark:bg-discord-input rounded-xl border border-slate-200 dark:border-discord-border text-xs">
               <span className="relative flex h-2 w-2">
                 {(!monitorStatus?.paused && !isLoading) && (
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1078,11 +1068,11 @@ export default function App() {
                   isLoading ? 'bg-indigo-500 animate-spin' : monitorStatus?.paused ? 'bg-amber-400' : 'bg-emerald-500'
                 }`}></span>
               </span>
-              <span className="font-semibold text-slate-700 dark:text-slate-200">
+              <span className="font-semibold text-slate-700 dark:text-discord-header">
                 {isLoading ? 'Varrendo...' : monitorStatus?.paused ? 'Pausado' : 'Ativo'}
               </span>
               {(!monitorStatus?.paused && nextCheckMinutes) && (
-                <span className="text-[11px] text-slate-400 border-l border-slate-300 dark:border-slate-700 pl-2">
+                <span className="text-[11px] text-slate-400 dark:text-discord-muted border-l border-slate-300 dark:border-discord-border pl-2">
                   Próxima {nextCheckMinutes}
                 </span>
               )}
@@ -1090,7 +1080,7 @@ export default function App() {
               <button
                 onClick={handleTogglePause}
                 title={monitorStatus?.paused ? "Retomar monitoramento" : "Pausar monitoramento"}
-                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer ml-0.5"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-discord-header cursor-pointer ml-0.5"
               >
                 {monitorStatus?.paused ? <Play size={12} className="text-emerald-600" /> : <Pause size={12} />}
               </button>
@@ -1098,19 +1088,19 @@ export default function App() {
               <button
                 onClick={handleToggleMute}
                 title={monitorStatus?.muted ? "Ativar notificações" : "Silenciar notificações"}
-                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-discord-header cursor-pointer"
               >
                 {monitorStatus?.muted ? <BellOff size={12} className="text-rose-500" /> : <Bell size={12} />}
               </button>
             </div>
 
             {/* Alternador de Modo: Tabela vs Cards vs Split-View */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
+            <div className="flex items-center bg-slate-100 dark:bg-discord-input p-0.5 rounded-xl border border-slate-200 dark:border-discord-border text-xs font-medium shrink-0">
               <button
                 onClick={() => setViewMode('table')}
                 title="Modo Tabela Completa"
                 className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                  viewMode === 'table' ? 'bg-white dark:bg-slate-700 shadow-xs text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                  viewMode === 'table' ? 'bg-white dark:bg-discord-card shadow-xs text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-500 dark:text-discord-muted hover:text-slate-800 dark:hover:text-discord-header'
                 }`}
               >
                 <List size={15} />
@@ -1119,7 +1109,7 @@ export default function App() {
                 onClick={() => setViewMode('cards')}
                 title="Modo Grade / Cards"
                 className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                  viewMode === 'cards' ? 'bg-white dark:bg-slate-700 shadow-xs text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                  viewMode === 'cards' ? 'bg-white dark:bg-discord-card shadow-xs text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-500 dark:text-discord-muted hover:text-slate-800 dark:hover:text-discord-header'
                 }`}
               >
                 <LayoutGrid size={15} />
@@ -1128,18 +1118,18 @@ export default function App() {
                 onClick={() => setViewMode('split')}
                 title="Modo Split-View (Lista + Prévia Instantânea)"
                 className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                  viewMode === 'split' ? 'bg-white dark:bg-slate-700 shadow-xs text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                  viewMode === 'split' ? 'bg-white dark:bg-discord-card shadow-xs text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-500 dark:text-discord-muted hover:text-slate-800 dark:hover:text-discord-header'
                 }`}
               >
                 <Columns3 size={15} />
               </button>
             </div>
 
-            {/* Alternador Modo Claro / Escuro */}
+            {/* Alternador Modo Claro / Escuro Discord */}
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
-              title={isDarkMode ? "Mudar para modo claro" : "Mudar para modo escuro"}
-              className="p-2 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"
+              title={isDarkMode ? "Mudar para modo claro" : "Mudar para modo escuro (Discord)"}
+              className="p-2 text-slate-500 hover:text-indigo-600 dark:text-discord-muted dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-discord-hover rounded-xl transition-all border border-slate-200 dark:border-discord-border cursor-pointer shrink-0"
             >
               {isDarkMode ? <Sun size={15} className="text-amber-400" /> : <Moon size={15} />}
             </button>
@@ -1148,8 +1138,8 @@ export default function App() {
             <button 
               onClick={handleRefresh}
               disabled={isLoading}
-              title="Buscar novas vagas agora nas 7 plataformas"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-xl transition-all border border-slate-200 dark:border-slate-700 text-xs font-semibold cursor-pointer shrink-0"
+              title="Buscar novas vagas agora nas 7 plataformas (rápido)"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-slate-700 dark:text-discord-header hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-discord-hover rounded-xl transition-all border border-slate-200 dark:border-discord-border text-xs font-semibold cursor-pointer shrink-0 disabled:opacity-50"
             >
               <RefreshCw size={13} className={`${isLoading ? 'animate-spin text-indigo-600' : ''}`} />
               <span className="hidden sm:inline">{isLoading ? 'Buscando...' : 'Verificar Agora'}</span>
@@ -1159,31 +1149,31 @@ export default function App() {
 
         {/* ---------------- BARRA DE BUSCA E FILTROS DIRETOS ---------------- */}
         {activeTab === 'jobs' && (
-          <div className="bg-white dark:bg-slate-900 border-b border-slate-200/90 dark:border-slate-800 px-6 py-2.5 shrink-0 shadow-2xs space-y-2">
+          <div className="bg-white dark:bg-discord-card border-b border-slate-200/90 dark:border-discord-border px-6 py-2.5 shrink-0 shadow-2xs space-y-2">
             <div className="flex items-center gap-2.5 flex-wrap">
-              {/* Busca Textual Direta com Ação de Pesquisa e Atalho Ctrl+K */}
+              {/* Busca Textual Direta com Filtragem Instantânea e Busca Web Otimizada */}
               <form onSubmit={handleSearchSubmit} className="relative flex-1 min-w-[240px] flex items-center">
                 <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-discord-muted" size={14} />
                   <input 
                     ref={searchInputRef}
                     type="text" 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Buscar cargo, empresa ou skill (ex: Dev, RH, Estágio...)" 
-                    className="w-full pl-8 pr-16 py-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-700/60 focus:bg-white dark:focus:bg-slate-800 text-xs text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 rounded-xl outline-none transition-all"
+                    className="w-full pl-8 pr-16 py-1.5 bg-slate-50 dark:bg-discord-input hover:bg-slate-100/80 dark:hover:bg-discord-hover/60 focus:bg-white dark:focus:bg-discord-input text-xs text-slate-800 dark:text-discord-header border border-slate-200 dark:border-discord-border focus:border-indigo-500 rounded-xl outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-discord-muted"
                   />
                   <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                     {searchQuery && (
                       <button 
                         type="button"
                         onClick={() => setSearchQuery('')}
-                        className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                        className="text-slate-400 hover:text-slate-600 dark:text-discord-muted dark:hover:text-discord-header p-0.5 cursor-pointer"
                       >
                         <X size={12} />
                       </button>
                     )}
-                    <kbd className="hidden lg:inline-block px-1.5 py-0.5 text-[9px] font-mono text-slate-400 bg-slate-200/60 dark:bg-slate-700/60 rounded border border-slate-300 dark:border-slate-600">
+                    <kbd className="hidden lg:inline-block px-1.5 py-0.5 text-[9px] font-mono text-slate-400 dark:text-discord-muted bg-slate-200/60 dark:bg-discord-card rounded border border-slate-300 dark:border-discord-border">
                       Ctrl+K
                     </kbd>
                   </div>
@@ -1191,7 +1181,7 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  title="Buscar vagas na web agora"
+                  title="Buscar nas 7 plataformas online agora"
                   className="ml-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
                 >
                   <Search size={13} className={isLoading ? 'animate-spin' : ''} />
@@ -1204,7 +1194,7 @@ export default function App() {
                 <select
                   value={selectedTimeFilter}
                   onChange={(e) => setSelectedTimeFilter(e.target.value as any)}
-                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100/80 dark:hover:bg-slate-700 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-500 cursor-pointer transition-all"
+                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-discord-input border border-slate-200 dark:border-discord-border hover:bg-slate-100/80 dark:hover:bg-discord-hover rounded-xl text-xs font-medium text-slate-700 dark:text-discord-header outline-none focus:border-indigo-500 cursor-pointer transition-all"
                 >
                   <option value="ALL">Período: Todas</option>
                   <option value="24H">Últimas 24h</option>
@@ -1219,7 +1209,7 @@ export default function App() {
                 <select
                   value={selectedCityFilter}
                   onChange={(e) => setSelectedCityFilter(e.target.value)}
-                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100/80 dark:hover:bg-slate-700 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-500 cursor-pointer transition-all"
+                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-discord-input border border-slate-200 dark:border-discord-border hover:bg-slate-100/80 dark:hover:bg-discord-hover rounded-xl text-xs font-medium text-slate-700 dark:text-discord-header outline-none focus:border-indigo-500 cursor-pointer transition-all"
                 >
                   <option value="ALL">Local: Todos</option>
                   <option value="RECIFE">Recife</option>
@@ -1236,7 +1226,7 @@ export default function App() {
                 <select
                   value={selectedRoleFilter}
                   onChange={(e) => setSelectedRoleFilter(e.target.value)}
-                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100/80 dark:hover:bg-slate-700 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-500 cursor-pointer transition-all"
+                  className="px-2.5 py-1.5 bg-slate-50 dark:bg-discord-input border border-slate-200 dark:border-discord-border hover:bg-slate-100/80 dark:hover:bg-discord-hover rounded-xl text-xs font-medium text-slate-700 dark:text-discord-header outline-none focus:border-indigo-500 cursor-pointer transition-all"
                 >
                   <option value="ALL">Todos os Cargos</option>
                   <option value="DEV">TI & Dev</option>
@@ -1257,7 +1247,7 @@ export default function App() {
                   className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 border ${
                     filterWithSalaryOnly 
                       ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' 
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                      : 'bg-slate-50 dark:bg-discord-input text-slate-600 dark:text-discord-muted border-slate-200 dark:border-discord-border hover:border-slate-300'
                   }`}
                 >
                   <DollarSign size={13} className={filterWithSalaryOnly ? 'text-white' : 'text-emerald-500'} />
@@ -1270,7 +1260,7 @@ export default function App() {
                   className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 border ${
                     filterWithBenefitsOnly 
                       ? 'bg-purple-600 text-white border-purple-600 shadow-xs' 
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                      : 'bg-slate-50 dark:bg-discord-input text-slate-600 dark:text-discord-muted border-slate-200 dark:border-discord-border hover:border-slate-300'
                   }`}
                 >
                   <Gift size={13} className={filterWithBenefitsOnly ? 'text-white' : 'text-purple-500'} />
@@ -1281,13 +1271,13 @@ export default function App() {
 
             {/* Pills de Plataformas (7 Fontes Nacionais) */}
             <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none text-xs">
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 shrink-0">Fontes:</span>
+              <span className="text-[11px] font-semibold text-slate-400 dark:text-discord-muted shrink-0">Fontes:</span>
               <button
                 onClick={() => setSelectedSource('ALL')}
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
                   selectedSource === 'ALL' 
                     ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-discord-input text-slate-600 dark:text-discord-text hover:bg-slate-200 dark:hover:bg-discord-hover'
                 }`}
               >
                 Todas as 7 Fontes
@@ -1297,7 +1287,7 @@ export default function App() {
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
                   selectedSource.toLowerCase() === 'gupy' 
                     ? 'bg-indigo-600 text-white shadow-xs' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-discord-input text-slate-600 dark:text-discord-text hover:bg-slate-200 dark:hover:bg-discord-hover'
                 }`}
               >
                 Gupy
@@ -1307,7 +1297,7 @@ export default function App() {
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
                   selectedSource.toLowerCase() === 'linkedin' 
                     ? 'bg-[#0A66C2] text-white shadow-xs' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-discord-input text-slate-600 dark:text-discord-text hover:bg-slate-200 dark:hover:bg-discord-hover'
                 }`}
               >
                 LinkedIn
@@ -1317,7 +1307,7 @@ export default function App() {
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
                   selectedSource.toLowerCase() === 'indeed' 
                     ? 'bg-[#003A9B] text-white shadow-xs' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-discord-input text-slate-600 dark:text-discord-text hover:bg-slate-200 dark:hover:bg-discord-hover'
                 }`}
               >
                 Indeed
@@ -1327,7 +1317,7 @@ export default function App() {
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
                   selectedSource.toLowerCase() === 'vagas' 
                     ? 'bg-rose-600 text-white shadow-xs' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-discord-input text-slate-600 dark:text-discord-text hover:bg-slate-200 dark:hover:bg-discord-hover'
                 }`}
               >
                 Vagas.com
@@ -1337,7 +1327,7 @@ export default function App() {
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
                   selectedSource.toLowerCase() === 'trabalha' 
                     ? 'bg-emerald-600 text-white shadow-xs' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-discord-input text-slate-600 dark:text-discord-text hover:bg-slate-200 dark:hover:bg-discord-hover'
                 }`}
               >
                 Trabalha Brasil
@@ -1347,7 +1337,7 @@ export default function App() {
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
                   selectedSource.toLowerCase() === 'infojobs' 
                     ? 'bg-orange-600 text-white shadow-xs' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-discord-input text-slate-600 dark:text-discord-text hover:bg-slate-200 dark:hover:bg-discord-hover'
                 }`}
               >
                 InfoJobs
@@ -1357,7 +1347,7 @@ export default function App() {
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer shrink-0 ${
                   selectedSource.toLowerCase() === 'catho' 
                     ? 'bg-sky-600 text-white shadow-xs' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-discord-input text-slate-600 dark:text-discord-text hover:bg-slate-200 dark:hover:bg-discord-hover'
                 }`}
               >
                 Catho
@@ -1368,12 +1358,12 @@ export default function App() {
 
         {/* Subheader da Aba Minhas Vagas */}
         {activeTab === 'history' && (
-          <div className="bg-white dark:bg-slate-900 border-b border-slate-200/90 dark:border-slate-800 px-6 py-2.5 flex items-center gap-3 shrink-0 text-xs shadow-2xs">
-            <span className="text-slate-500 dark:text-slate-400 font-semibold">Exibir:</span>
+          <div className="bg-white dark:bg-discord-card border-b border-slate-200/90 dark:border-discord-border px-6 py-2.5 flex items-center gap-3 shrink-0 text-xs shadow-2xs">
+            <span className="text-slate-500 dark:text-discord-muted font-semibold">Exibir:</span>
             <button
               onClick={() => setHistorySubTab('favorites')}
               className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                historySubTab === 'favorites' ? 'bg-amber-500 text-white font-bold shadow-xs' : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                historySubTab === 'favorites' ? 'bg-amber-500 text-white font-bold shadow-xs' : 'bg-slate-50 dark:bg-discord-input text-slate-600 dark:text-discord-text border border-slate-200 dark:border-discord-border'
               }`}
             >
               <Bookmark size={13} className={historySubTab === 'favorites' ? 'fill-white' : ''} />
@@ -1382,7 +1372,7 @@ export default function App() {
             <button
               onClick={() => setHistorySubTab('applied')}
               className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
-                historySubTab === 'applied' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                historySubTab === 'applied' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'bg-slate-50 dark:bg-discord-input text-slate-600 dark:text-discord-text border border-slate-200 dark:border-discord-border'
               }`}
             >
               <CheckCircle2 size={13} />
@@ -1410,7 +1400,7 @@ export default function App() {
               {/* Cabeçalho */}
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-2.5">
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-discord-header tracking-tight flex items-center gap-2.5">
                     <span>
                       {activeTab === 'history' 
                         ? (historySubTab === 'favorites' ? 'Vagas Favoritas' : 'Vagas Candidatadas') 
@@ -1420,10 +1410,10 @@ export default function App() {
                       {filteredAndSortedJobs.length} vagas encontradas
                     </span>
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-discord-muted mt-0.5">
                     {activeTab === 'history' 
                       ? 'Oportunidades marcadas para acompanhamento do processo seletivo.'
-                      : 'Varredura em tempo real nas 7 principais plataformas nacionais de recrutamento.'}
+                      : 'Varredura rápida em tempo real nas 7 principais plataformas nacionais de recrutamento.'}
                   </p>
                 </div>
 
@@ -1431,30 +1421,30 @@ export default function App() {
                   {dismissedJobs.length > 0 && activeTab === 'jobs' && (
                     <button
                       onClick={() => setShowDismissed(!showDismissed)}
-                      className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 cursor-pointer transition-colors"
+                      className="text-xs text-slate-500 hover:text-slate-800 dark:text-discord-muted dark:hover:text-discord-header flex items-center gap-1 cursor-pointer transition-colors"
                     >
                       {showDismissed ? <Eye size={12} /> : <EyeOff size={12} />}
                       <span>{showDismissed ? 'Ocultar descartadas' : `Ver ${dismissedJobs.length} descartadas`}</span>
                     </button>
                   )}
 
-                  <div className="hidden lg:flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  <div className="hidden lg:flex items-center gap-1 text-[11px] text-slate-400 dark:text-discord-muted">
                     <Keyboard size={13} />
-                    <span>Navegue com <kbd className="px-1 py-0.2 bg-slate-200 dark:bg-slate-800 rounded font-mono">↑</kbd> <kbd className="px-1 py-0.2 bg-slate-200 dark:bg-slate-800 rounded font-mono">↓</kbd> • <kbd className="px-1 py-0.2 bg-slate-200 dark:bg-slate-800 rounded font-mono">Espaço</kbd> ver • <kbd className="px-1 py-0.2 bg-slate-200 dark:bg-slate-800 rounded font-mono">F</kbd> favoritar</span>
+                    <span>Navegue com <kbd className="px-1 py-0.2 bg-slate-200 dark:bg-discord-input rounded font-mono">↑</kbd> <kbd className="px-1 py-0.2 bg-slate-200 dark:bg-discord-input rounded font-mono">↓</kbd> • <kbd className="px-1 py-0.2 bg-slate-200 dark:bg-discord-input rounded font-mono">Espaço</kbd> ver • <kbd className="px-1 py-0.2 bg-slate-200 dark:bg-discord-input rounded font-mono">F</kbd> favoritar</span>
                   </div>
                 </div>
               </div>
 
               {/* LISTAGEM VAZIA */}
               {filteredAndSortedJobs.length === 0 ? (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center py-20 text-center px-4">
-                  <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-500 mb-3">
+                <div className="bg-white dark:bg-discord-card rounded-2xl border border-slate-200/90 dark:border-discord-border shadow-sm flex flex-col items-center justify-center py-20 text-center px-4">
+                  <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-discord-input flex items-center justify-center text-indigo-500 mb-3">
                     <Search size={28} />
                   </div>
-                  <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-discord-header">
                     {isLoading ? 'Varrendo as 7 plataformas de vagas...' : 'Nenhuma vaga correspondente encontrada'}
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mt-1">
+                  <p className="text-xs text-slate-500 dark:text-discord-muted max-w-sm mt-1">
                     {isLoading 
                       ? 'Consultando Gupy, LinkedIn, Indeed, Vagas, Trabalha Brasil, InfoJobs e Catho...'
                       : searchQuery.trim() 
@@ -1474,7 +1464,7 @@ export default function App() {
                       )}
                       <button
                         onClick={handleRefresh}
-                        className="px-4 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 text-xs font-semibold hover:bg-indigo-100 transition-colors cursor-pointer"
+                        className="px-4 py-2 rounded-xl bg-indigo-50 dark:bg-discord-input text-indigo-600 dark:text-indigo-400 text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-discord-hover transition-colors cursor-pointer"
                       >
                         Recarregar Vagas
                       </button>
@@ -1485,13 +1475,13 @@ export default function App() {
                 /* ---------------- MODO SPLIT-VIEW (2 COLUNAS) ---------------- */
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 h-[calc(100vh-235px)]">
                   {/* Coluna Esquerda: Lista de Vagas */}
-                  <div className="lg:col-span-5 flex flex-col h-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm overflow-hidden">
-                    <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-                      <span className="font-semibold">{paginatedJobs.length} vagas exibidas</span>
+                  <div className="lg:col-span-5 flex flex-col h-full bg-white dark:bg-discord-card rounded-2xl border border-slate-200/90 dark:border-discord-border shadow-sm overflow-hidden">
+                    <div className="p-3 border-b border-slate-100 dark:border-discord-border flex items-center justify-between text-xs text-slate-500 dark:text-discord-muted">
+                      <span className="font-semibold text-slate-700 dark:text-discord-header">{paginatedJobs.length} vagas exibidas</span>
                       <span>Página {currentPage} de {totalPages}</span>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 p-2 space-y-1">
+                    <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-discord-borderSubtle p-2 space-y-1">
                       {paginatedJobs.map((job, idx) => {
                         const isSelected = activeSplitJob?.id === job.id;
                         const isFav = favorites.includes(job.id);
@@ -1506,41 +1496,41 @@ export default function App() {
                             }}
                             className={`p-3 rounded-xl transition-all cursor-pointer flex flex-col gap-1.5 ${
                               isSelected 
-                                ? 'bg-indigo-50/80 dark:bg-indigo-950/50 border-2 border-indigo-600 dark:border-indigo-500 shadow-xs' 
-                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 border border-transparent'
+                                ? 'bg-indigo-50/80 dark:bg-discord-hover/90 border-2 border-indigo-600 dark:border-indigo-500 shadow-xs' 
+                                : 'hover:bg-slate-50 dark:hover:bg-discord-hover/40 border border-transparent'
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2">
                               {renderSourceBadge(job.source)}
-                              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                              <span className="text-[10px] text-slate-400 dark:text-discord-muted">
                                 {formatDistanceToNow(new Date(job.publishedAt), { addSuffix: true, locale: ptBR })}
                               </span>
                             </div>
 
-                            <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100 line-clamp-1 leading-snug">
+                            <h4 className="font-bold text-xs text-slate-900 dark:text-discord-header line-clamp-1 leading-snug">
                               {job.title}
                             </h4>
 
-                            <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                              <span className="font-medium text-slate-700 dark:text-slate-300 truncate">{job.company}</span>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-discord-muted truncate">
+                              <span className="font-medium text-slate-700 dark:text-discord-text truncate">{job.company}</span>
                               <span>•</span>
                               <span className="truncate">{formatLocation(job.location, job.modality)}</span>
                             </div>
 
                             <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                               {job.salary && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                                   <DollarSign size={10} />
                                   {job.salary}
                                 </span>
                               )}
                               {isApplied && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300">
                                   <Check size={9} /> Inscrito
                                 </span>
                               )}
                               {isFav && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
                                   ⭐ Salva
                                 </span>
                               )}
@@ -1551,21 +1541,21 @@ export default function App() {
                     </div>
 
                     {/* Paginação compacta para split view */}
-                    <div className="p-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <div className="p-2.5 border-t border-slate-100 dark:border-discord-border flex items-center justify-between">
                       <button
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
-                        className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer"
+                        className="p-1 rounded-lg border border-slate-200 dark:border-discord-border disabled:opacity-40 cursor-pointer"
                       >
                         <ChevronLeft size={14} />
                       </button>
-                      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      <span className="text-xs font-semibold text-slate-600 dark:text-discord-header">
                         {currentPage} / {totalPages}
                       </span>
                       <button
                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
-                        className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer"
+                        className="p-1 rounded-lg border border-slate-200 dark:border-discord-border disabled:opacity-40 cursor-pointer"
                       >
                         <ChevronRight size={14} />
                       </button>
@@ -1573,24 +1563,24 @@ export default function App() {
                   </div>
 
                   {/* Coluna Direita: Prévia Detalhada Fixa da Vaga */}
-                  <div className="lg:col-span-7 flex flex-col h-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm p-6 overflow-y-auto">
+                  <div className="lg:col-span-7 flex flex-col h-full bg-white dark:bg-discord-card rounded-2xl border border-slate-200/90 dark:border-discord-border shadow-sm p-6 overflow-y-auto">
                     {activeSplitJob ? (
                       <div className="space-y-5">
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <div className="flex items-center gap-2 mb-2">
                               {renderSourceBadge(activeSplitJob.source)}
-                              <span className="text-xs text-slate-400">
+                              <span className="text-xs text-slate-400 dark:text-discord-muted">
                                 Publicada {formatDistanceToNow(new Date(activeSplitJob.publishedAt), { addSuffix: true, locale: ptBR })}
                               </span>
                             </div>
-                            <h3 className="text-lg font-extrabold text-slate-900 dark:text-slate-100 leading-snug">
+                            <h3 className="text-lg font-extrabold text-slate-900 dark:text-discord-header leading-snug">
                               {activeSplitJob.title}
                             </h3>
-                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mt-1 flex items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-700 dark:text-discord-text mt-1 flex items-center gap-2">
                               <Building2 size={15} className="text-slate-400" />
                               <span>{activeSplitJob.company}</span>
-                              <span className="text-slate-300 dark:text-slate-600">•</span>
+                              <span className="text-slate-300 dark:text-discord-border">•</span>
                               <MapPin size={15} className="text-indigo-500" />
                               <span>{formatLocation(activeSplitJob.location, activeSplitJob.modality)}</span>
                             </p>
@@ -1602,8 +1592,8 @@ export default function App() {
                               title="Favoritar"
                               className={`p-2 rounded-xl border transition-all cursor-pointer ${
                                 favorites.includes(activeSplitJob.id) 
-                                  ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 text-amber-500' 
-                                  : 'border-slate-200 dark:border-slate-700 text-slate-400 hover:text-amber-500'
+                                  ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-500' 
+                                  : 'border-slate-200 dark:border-discord-border text-slate-400 dark:text-discord-muted hover:text-amber-500'
                               }`}
                             >
                               <Bookmark size={16} className={favorites.includes(activeSplitJob.id) ? 'fill-amber-500' : ''} />
@@ -1614,8 +1604,8 @@ export default function App() {
                               title="Marcar como já me candidatei"
                               className={`p-2 rounded-xl border transition-all cursor-pointer ${
                                 appliedJobs.includes(activeSplitJob.id) 
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 text-emerald-600' 
-                                  : 'border-slate-200 dark:border-slate-700 text-slate-400 hover:text-emerald-600'
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-600' 
+                                  : 'border-slate-200 dark:border-discord-border text-slate-400 dark:text-discord-muted hover:text-emerald-600'
                               }`}
                             >
                               <CheckCircle2 size={16} className={appliedJobs.includes(activeSplitJob.id) ? 'fill-emerald-100' : ''} />
@@ -1629,7 +1619,7 @@ export default function App() {
                             {activeSplitJob.salary && (
                               <div className="flex items-center gap-2">
                                 <DollarSign size={16} className="text-emerald-600 dark:text-emerald-400" />
-                                <span className="text-xs text-slate-500 dark:text-slate-400">Salário / Remuneração:</span>
+                                <span className="text-xs text-slate-500 dark:text-discord-muted">Salário / Remuneração:</span>
                                 <span className="text-sm font-extrabold text-emerald-700 dark:text-emerald-300">{activeSplitJob.salary}</span>
                               </div>
                             )}
@@ -1637,7 +1627,7 @@ export default function App() {
                             {activeSplitJob.benefits && activeSplitJob.benefits.length > 0 && (
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Gift size={16} className="text-purple-600 dark:text-purple-400 shrink-0" />
-                                <span className="text-xs text-slate-500 dark:text-slate-400">Benefícios:</span>
+                                <span className="text-xs text-slate-500 dark:text-discord-muted">Benefícios:</span>
                                 {activeSplitJob.benefits.map((b, i) => (
                                   <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-700">
                                     {b}
@@ -1660,7 +1650,7 @@ export default function App() {
 
                           <button
                             onClick={() => handleSendToKanban(activeSplitJob)}
-                            className="py-2.5 px-4 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                            className="py-2.5 px-4 bg-indigo-50 dark:bg-discord-input text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-discord-hover border border-indigo-200 dark:border-discord-border font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
                           >
                             <Trophy size={14} className="text-amber-500" />
                             <span>Adicionar ao Funil</span>
@@ -1668,17 +1658,17 @@ export default function App() {
                         </div>
 
                         {/* Descrição da Vaga */}
-                        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                          <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-discord-border">
+                          <h4 className="text-xs font-bold text-slate-700 dark:text-discord-header uppercase tracking-wider">
                             Descrição e Detalhes da Vaga
                           </h4>
-                          <div className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-100 dark:border-slate-800 max-h-96 overflow-y-auto">
+                          <div className="text-xs text-slate-600 dark:text-discord-text leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-discord-input p-4 rounded-xl border border-slate-100 dark:border-discord-border max-h-96 overflow-y-auto">
                             {activeSplitJob.description || 'Descrição detalhada não fornecida pela fonte.'}
                           </div>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex flex-col items-center justify-center h-full text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 dark:text-discord-muted">
                         <Columns3 size={32} className="mb-2" />
                         <p className="text-xs">Selecione uma vaga à esquerda para pré-visualizar os detalhes instantaneamente.</p>
                       </div>
@@ -1697,10 +1687,10 @@ export default function App() {
                       return (
                         <div 
                           key={job.id} 
-                          className={`bg-white dark:bg-slate-900 rounded-2xl border ${
-                            isApplied ? 'border-emerald-300 dark:border-emerald-700 ring-1 ring-emerald-300/40' : 'border-slate-200/90 dark:border-slate-800'
-                          } p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group ${
-                            isDismissed ? 'opacity-50 bg-slate-50 dark:bg-slate-800/50' : ''
+                          className={`bg-white dark:bg-discord-card rounded-2xl border ${
+                            isApplied ? 'border-emerald-300 dark:border-emerald-700 ring-1 ring-emerald-300/40' : 'border-slate-200/90 dark:border-discord-border'
+                          } p-5 shadow-xs hover:shadow-md hover:dark:bg-discord-hover/30 transition-all flex flex-col justify-between group ${
+                            isDismissed ? 'opacity-50 bg-slate-50 dark:bg-discord-input' : ''
                           }`}
                         >
                           <div>
@@ -1708,7 +1698,7 @@ export default function App() {
                               <div className="flex items-center gap-2">
                                 {renderSourceBadge(job.source)}
 
-                                <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-discord-muted">
                                   <Clock size={11} />
                                   {formatDistanceToNow(new Date(job.publishedAt), { addSuffix: true, locale: ptBR })}
                                 </span>
@@ -1718,7 +1708,7 @@ export default function App() {
                                 <button 
                                   onClick={() => handleSendToKanban(job)}
                                   title="Adicionar ao Funil de Candidaturas"
-                                  className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-amber-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                                  className="p-1.5 rounded-lg border border-slate-200 dark:border-discord-border text-slate-400 hover:text-amber-500 hover:bg-slate-50 dark:hover:bg-discord-hover transition-all cursor-pointer"
                                 >
                                   <Trophy size={14} className="text-amber-500" />
                                 </button>
@@ -1727,7 +1717,7 @@ export default function App() {
                                   onClick={() => toggleApplied(job.id)}
                                   title={isApplied ? "Remover marcação" : "Marcar como já me candidatei"}
                                   className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                                    isApplied ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-300 text-emerald-600' : 'border-slate-200 dark:border-slate-700 text-slate-300 hover:text-emerald-600 hover:bg-slate-50'
+                                    isApplied ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-300 text-emerald-600' : 'border-slate-200 dark:border-discord-border text-slate-300 dark:text-discord-muted hover:text-emerald-600 hover:bg-slate-50'
                                   }`}
                                 >
                                   <CheckCircle2 size={14} className={isApplied ? 'fill-emerald-100' : ''} />
@@ -1737,7 +1727,7 @@ export default function App() {
                                   onClick={() => toggleFavorite(job.id)}
                                   title={isFav ? "Remover dos favoritos" : "Salvar vaga"}
                                   className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                                    isFav ? 'bg-amber-50 dark:bg-amber-950 border-amber-300 text-amber-500' : 'border-slate-200 dark:border-slate-700 text-slate-300 hover:text-amber-500 hover:bg-slate-50'
+                                    isFav ? 'bg-amber-50 dark:bg-amber-950 border-amber-300 text-amber-500' : 'border-slate-200 dark:border-discord-border text-slate-300 dark:text-discord-muted hover:text-amber-500 hover:bg-slate-50'
                                   }`}
                                 >
                                   <Bookmark size={14} className={isFav ? 'fill-amber-500' : ''} />
@@ -1746,7 +1736,7 @@ export default function App() {
                                 <button 
                                   onClick={() => handleDismissJob(job.id)}
                                   title={isDismissed ? "Reexibir vaga" : "Ocultar vaga"}
-                                  className="p-1.5 text-slate-300 dark:text-slate-600 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 rounded-lg transition-all cursor-pointer"
+                                  className="p-1.5 text-slate-300 dark:text-discord-muted hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-discord-hover border border-slate-200 dark:border-discord-border rounded-lg transition-all cursor-pointer"
                                 >
                                   {isDismissed ? <Eye size={14} /> : <EyeOff size={14} />}
                                 </button>
@@ -1765,18 +1755,18 @@ export default function App() {
                             <h3 
                               onClick={() => handleOpenDetails(job)}
                               title="Clique para ver os detalhes completos da vaga"
-                              className="font-bold text-slate-900 dark:text-slate-100 text-sm hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer line-clamp-2 leading-snug flex items-start justify-between gap-1 group/title"
+                              className="font-bold text-slate-900 dark:text-discord-header text-sm hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer line-clamp-2 leading-snug flex items-start justify-between gap-1 group/title"
                             >
                               <span>{job.title}</span>
-                              <Eye size={14} className="text-slate-300 dark:text-slate-600 group-hover/title:text-indigo-600 transition-colors shrink-0 mt-0.5" />
+                              <Eye size={14} className="text-slate-300 dark:text-discord-muted group-hover/title:text-indigo-600 transition-colors shrink-0 mt-0.5" />
                             </h3>
 
-                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 font-medium mt-2">
-                              <Building2 size={13} className="text-slate-400 shrink-0" />
+                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-discord-text font-medium mt-2">
+                              <Building2 size={13} className="text-slate-400" />
                               <span className="truncate">{job.company}</span>
                             </div>
 
-                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 mt-1.5">
+                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-discord-muted mt-1.5">
                               <MapPin size={13} className="text-indigo-500 shrink-0" />
                               <span className="truncate">{formatLocation(job.location, job.modality)}</span>
                             </div>
@@ -1798,7 +1788,7 @@ export default function App() {
                                     </span>
                                   ))}
                                   {job.benefits.length > 3 && (
-                                    <span className="text-[10px] text-slate-400 font-semibold self-center">
+                                    <span className="text-[10px] text-slate-400 dark:text-discord-muted font-semibold self-center">
                                       +{job.benefits.length - 3}
                                     </span>
                                   )}
@@ -1807,7 +1797,7 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                          <div className="mt-5 pt-3 border-t border-slate-100 dark:border-discord-border flex items-center gap-2">
                             <button 
                               onClick={() => handleOpenLink(job.url)}
                               className="flex-1 group/btn relative inline-flex items-center justify-center gap-2 py-2 px-4 bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-98 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer border border-emerald-500/40"
@@ -1823,16 +1813,16 @@ export default function App() {
                   </div>
 
                   {/* Paginação para Cards */}
-                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-4 flex items-center justify-between flex-wrap gap-3">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      Exibindo <span className="font-semibold text-slate-900 dark:text-slate-100">{filteredAndSortedJobs.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</span>–<span className="font-semibold text-slate-900 dark:text-slate-100">{Math.min(currentPage * itemsPerPage, filteredAndSortedJobs.length)}</span> de <span className="font-semibold text-slate-900 dark:text-slate-100">{filteredAndSortedJobs.length}</span> vagas
+                  <div className="bg-white dark:bg-discord-card rounded-2xl border border-slate-200/90 dark:border-discord-border p-4 flex items-center justify-between flex-wrap gap-3">
+                    <span className="text-xs text-slate-500 dark:text-discord-muted">
+                      Exibindo <span className="font-semibold text-slate-900 dark:text-discord-header">{filteredAndSortedJobs.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</span>–<span className="font-semibold text-slate-900 dark:text-discord-header">{Math.min(currentPage * itemsPerPage, filteredAndSortedJobs.length)}</span> de <span className="font-semibold text-slate-900 dark:text-discord-header">{filteredAndSortedJobs.length}</span> vagas
                     </span>
 
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-xs font-medium flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-discord-border text-slate-600 dark:text-discord-text hover:bg-slate-100 dark:hover:bg-discord-hover disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-xs font-medium flex items-center gap-1"
                         title="Página Anterior"
                       >
                         <ChevronLeft size={14} />
@@ -1849,7 +1839,7 @@ export default function App() {
                             key={pageNum}
                             onClick={() => setCurrentPage(pageNum)}
                             className={`w-7 h-7 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                              currentPage === pageNum ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
+                              currentPage === pageNum ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-discord-text hover:bg-slate-100 dark:hover:bg-discord-hover border border-slate-200 dark:border-discord-border'
                             }`}
                           >
                             {pageNum}
@@ -1860,7 +1850,7 @@ export default function App() {
                       <button
                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-xs font-medium flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-discord-border text-slate-600 dark:text-discord-text hover:bg-slate-100 dark:hover:bg-discord-hover disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-xs font-medium flex items-center gap-1"
                         title="Próxima Página"
                       >
                         <span>Próxima</span>
@@ -1871,15 +1861,15 @@ export default function App() {
                 </div>
               ) : (
                 /* ---------------- MODO TABELA ---------------- */
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm overflow-hidden w-full">
+                <div className="bg-white dark:bg-discord-card rounded-2xl border border-slate-200/90 dark:border-discord-border shadow-sm overflow-hidden w-full">
                   <div className="overflow-x-auto w-full">
                     <table className="w-full text-left border-collapse table-auto">
                       <thead>
-                        <tr className="bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                        <tr className="bg-slate-50/90 dark:bg-discord-darkest/90 border-b border-slate-200 dark:border-discord-border text-xs font-bold text-slate-600 dark:text-discord-muted uppercase tracking-wider">
                           <th className="py-3 px-3 w-10 text-center">#</th>
 
                           <th 
-                            className="py-3 px-3 min-w-[220px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                            className="py-3 px-3 min-w-[220px] cursor-pointer hover:bg-slate-100 dark:hover:bg-discord-hover transition-colors select-none"
                             onClick={() => handleSort('title')}
                             title="Ordenar por Título"
                           >
@@ -1894,7 +1884,7 @@ export default function App() {
                           </th>
 
                           <th 
-                            className="py-3 px-3 w-36 max-w-[150px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                            className="py-3 px-3 w-36 max-w-[150px] cursor-pointer hover:bg-slate-100 dark:hover:bg-discord-hover transition-colors select-none"
                             onClick={() => handleSort('company')}
                             title="Ordenar por Empresa"
                           >
@@ -1913,7 +1903,7 @@ export default function App() {
                           <th className="py-3 px-3 min-w-[150px]">Local / Modalidade</th>
 
                           <th 
-                            className="py-3 px-3 w-28 whitespace-nowrap cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                            className="py-3 px-3 w-28 whitespace-nowrap cursor-pointer hover:bg-slate-100 dark:hover:bg-discord-hover transition-colors select-none"
                             onClick={() => handleSort('publishedAt')}
                             title="Ordenar por Data de Publicação"
                           >
@@ -1927,12 +1917,12 @@ export default function App() {
                             </div>
                           </th>
 
-                          <th className="py-3 px-3 w-52 min-w-[210px] text-center font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30 whitespace-nowrap">
+                          <th className="py-3 px-3 w-52 min-w-[210px] text-center font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 whitespace-nowrap">
                             Ações & Funil
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs sm:text-sm">
+                      <tbody className="divide-y divide-slate-100 dark:divide-discord-borderSubtle text-xs sm:text-sm">
                         {paginatedJobs.map((job, idx) => {
                           const isFav = favorites.includes(job.id);
                           const isApplied = appliedJobs.includes(job.id);
@@ -1941,23 +1931,23 @@ export default function App() {
                           return (
                             <tr 
                               key={job.id} 
-                              className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group ${
+                              className={`hover:bg-slate-50/80 dark:hover:bg-discord-hover/40 transition-colors group ${
                                 isApplied ? 'bg-emerald-50/20 dark:bg-emerald-950/20' : ''
-                              } ${isDismissed ? 'opacity-50 bg-slate-50 dark:bg-slate-800/40' : ''}`}
+                              } ${isDismissed ? 'opacity-50 bg-slate-50 dark:bg-discord-input' : ''}`}
                             >
-                              <td className="py-3 px-3 text-xs text-slate-400 dark:text-slate-500 font-mono text-center">
+                              <td className="py-3 px-3 text-xs text-slate-400 dark:text-discord-muted font-mono text-center">
                                 {(currentPage - 1) * itemsPerPage + idx + 1}
                               </td>
 
                               <td className="py-3 px-3">
                                 <div className="space-y-1">
                                   <div 
-                                    className="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer flex items-center gap-1.5 group/title"
+                                    className="font-bold text-slate-900 dark:text-discord-header text-xs sm:text-sm hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer flex items-center gap-1.5 group/title"
                                     onClick={() => handleOpenDetails(job)}
                                     title="Clique para ver os detalhes completos da vaga"
                                   >
                                     <span className="line-clamp-1">{job.title}</span>
-                                    <Eye size={13} className="text-slate-300 dark:text-slate-600 group-hover/title:text-indigo-600 transition-colors shrink-0" />
+                                    <Eye size={13} className="text-slate-300 dark:text-discord-muted group-hover/title:text-indigo-600 transition-colors shrink-0" />
                                   </div>
                                   {isApplied && (
                                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-1.5 py-0.5 rounded shadow-2xs">
@@ -1968,9 +1958,9 @@ export default function App() {
                                 </div>
                               </td>
 
-                              <td className="py-3 px-3 text-slate-600 dark:text-slate-300 text-xs">
+                              <td className="py-3 px-3 text-slate-600 dark:text-discord-text text-xs">
                                 <div className="flex items-center gap-1.5 font-medium">
-                                  <Building2 size={13} className="text-slate-400 shrink-0" />
+                                  <Building2 size={13} className="text-slate-400" />
                                   <span className="truncate max-w-[140px]" title={job.company}>{job.company}</span>
                                 </div>
                               </td>
@@ -1988,7 +1978,7 @@ export default function App() {
                                       <span className="truncate">{job.salary}</span>
                                     </div>
                                   ) : (
-                                    <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">A combinar</span>
+                                    <span className="text-slate-400 dark:text-discord-muted text-[11px] italic">A combinar</span>
                                   )}
 
                                   {job.benefits && job.benefits.length > 0 && (
@@ -2003,7 +1993,7 @@ export default function App() {
                                 </div>
                               </td>
 
-                              <td className="py-3 px-3 text-xs text-slate-600 dark:text-slate-300">
+                              <td className="py-3 px-3 text-xs text-slate-600 dark:text-discord-muted">
                                 <div className="flex items-center gap-1">
                                   <MapPin size={12} className="text-indigo-500 shrink-0" />
                                   <span className="font-medium truncate max-w-[170px]" title={formatLocation(job.location, job.modality)}>
@@ -2012,9 +2002,9 @@ export default function App() {
                                 </div>
                               </td>
 
-                              <td className="py-3 px-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                              <td className="py-3 px-3 text-xs text-slate-500 dark:text-discord-muted whitespace-nowrap">
                                 <div className="flex items-center gap-1">
-                                  <Clock size={12} className="text-slate-400 shrink-0" />
+                                  <Clock size={12} className="text-slate-400" />
                                   <span>
                                     {formatDistanceToNow(new Date(job.publishedAt), { addSuffix: true, locale: ptBR })}
                                   </span>
@@ -2022,7 +2012,7 @@ export default function App() {
                               </td>
 
                               {/* Ações por Linha */}
-                              <td className="py-3 px-3 text-center bg-slate-50/40 dark:bg-slate-800/20 whitespace-nowrap w-52 min-w-[210px]">
+                              <td className="py-3 px-3 text-center bg-slate-50/40 dark:bg-discord-darkest/40 whitespace-nowrap w-52 min-w-[210px]">
                                 <div className="flex items-center justify-center gap-1.5">
                                   <button 
                                     onClick={() => handleOpenLink(job.url)}
@@ -2036,7 +2026,7 @@ export default function App() {
                                   <button 
                                     onClick={() => handleSendToKanban(job)}
                                     title="Adicionar ao Funil de Candidaturas"
-                                    className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-amber-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                                    className="p-1.5 rounded-xl border border-slate-200 dark:border-discord-border text-slate-400 hover:text-amber-500 hover:bg-slate-50 dark:hover:bg-discord-hover transition-all cursor-pointer"
                                   >
                                     <Trophy size={14} className="text-amber-500" />
                                   </button>
@@ -2047,7 +2037,7 @@ export default function App() {
                                     className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
                                       isApplied 
                                         ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-300 text-emerald-600' 
-                                        : 'border-slate-200 dark:border-slate-700 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/50'
+                                        : 'border-slate-200 dark:border-discord-border text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/50'
                                     }`}
                                   >
                                     <CheckCircle2 size={14} className={isApplied ? 'fill-emerald-100 text-emerald-600' : ''} />
@@ -2059,7 +2049,7 @@ export default function App() {
                                     className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
                                       isFav 
                                         ? 'bg-amber-50 dark:bg-amber-950 border-amber-300 text-amber-500' 
-                                        : 'border-slate-200 dark:border-slate-700 text-slate-400 hover:text-amber-500 hover:bg-amber-50/50'
+                                        : 'border-slate-200 dark:border-discord-border text-slate-400 hover:text-amber-500 hover:bg-amber-50/50'
                                     }`}
                                   >
                                     <Bookmark size={14} className={isFav ? 'fill-amber-500' : ''} />
@@ -2068,7 +2058,7 @@ export default function App() {
                                   <button 
                                     onClick={() => handleDismissJob(job.id)}
                                     title={isDismissed ? "Reexibir vaga" : "Ocultar vaga"}
-                                    className={`p-1.5 border border-slate-200 dark:border-slate-700 rounded-xl transition-all cursor-pointer ${
+                                    className={`p-1.5 border border-slate-200 dark:border-discord-border rounded-xl transition-all cursor-pointer ${
                                       isDismissed ? 'text-indigo-600 bg-indigo-50 border-indigo-200' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
                                     }`}
                                   >
@@ -2084,13 +2074,13 @@ export default function App() {
                   </div>
 
                   {/* ---------------- PAGINAÇÃO LIMPA ---------------- */}
-                  <div className="bg-slate-50/90 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between flex-wrap gap-4">
+                  <div className="bg-slate-50/90 dark:bg-discord-darkest/90 border-t border-slate-200 dark:border-discord-border px-6 py-3 flex items-center justify-between flex-wrap gap-4">
                     <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-500 dark:text-slate-400">
-                        Exibindo <span className="font-semibold text-slate-900 dark:text-slate-100">{filteredAndSortedJobs.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</span>–<span className="font-semibold text-slate-900 dark:text-slate-100">{Math.min(currentPage * itemsPerPage, filteredAndSortedJobs.length)}</span> de <span className="font-semibold text-slate-900 dark:text-slate-100">{filteredAndSortedJobs.length}</span> vagas
+                      <span className="text-xs text-slate-500 dark:text-discord-muted">
+                        Exibindo <span className="font-semibold text-slate-900 dark:text-discord-header">{filteredAndSortedJobs.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</span>–<span className="font-semibold text-slate-900 dark:text-discord-header">{Math.min(currentPage * itemsPerPage, filteredAndSortedJobs.length)}</span> de <span className="font-semibold text-slate-900 dark:text-discord-header">{filteredAndSortedJobs.length}</span> vagas
                       </span>
 
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-discord-muted">
                         <span>Por página:</span>
                         <select 
                           value={itemsPerPage}
@@ -2098,7 +2088,7 @@ export default function App() {
                             setItemsPerPage(Number(e.target.value));
                             setCurrentPage(1);
                           }}
-                          className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 text-xs outline-none cursor-pointer"
+                          className="bg-white dark:bg-discord-input border border-slate-200 dark:border-discord-border rounded-lg px-2 py-1 text-xs outline-none cursor-pointer text-slate-700 dark:text-discord-header"
                         >
                           <option value={25}>25</option>
                           <option value={50}>50</option>
@@ -2111,7 +2101,7 @@ export default function App() {
                       <button
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-xs font-medium flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-discord-border bg-white dark:bg-discord-card text-slate-600 dark:text-discord-text hover:bg-slate-100 dark:hover:bg-discord-hover disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-xs font-medium flex items-center gap-1"
                         title="Página Anterior"
                       >
                         <ChevronLeft size={14} />
@@ -2128,7 +2118,7 @@ export default function App() {
                             key={pageNum}
                             onClick={() => setCurrentPage(pageNum)}
                             className={`w-7 h-7 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                              currentPage === pageNum ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                              currentPage === pageNum ? 'bg-indigo-600 text-white shadow-xs' : 'bg-white dark:bg-discord-card text-slate-600 dark:text-discord-text hover:bg-slate-100 dark:hover:bg-discord-hover border border-slate-200 dark:border-discord-border'
                             }`}
                           >
                             {pageNum}
@@ -2139,7 +2129,7 @@ export default function App() {
                       <button
                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-xs font-medium flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-discord-border bg-white dark:bg-discord-card text-slate-600 dark:text-discord-text hover:bg-slate-100 dark:hover:bg-discord-hover disabled:opacity-40 disabled:pointer-events-none cursor-pointer text-xs font-medium flex items-center gap-1"
                         title="Próxima Página"
                       >
                         <span>Próxima</span>
@@ -2156,20 +2146,20 @@ export default function App() {
           {activeTab === 'settings' && (
             <div className="max-w-4xl mx-auto space-y-6 pb-12">
               {/* CARTÃO 1: NOTIFICAÇÕES EXTERNAS (TELEGRAM & DISCORD) */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-sm space-y-6">
-                <div className="flex items-start justify-between flex-wrap gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-discord-card rounded-2xl border border-slate-200 dark:border-discord-border p-6 sm:p-8 shadow-sm space-y-6">
+                <div className="flex items-start justify-between flex-wrap gap-4 pb-4 border-b border-slate-100 dark:border-discord-border">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-emerald-500 rounded-xl text-white shadow-xs">
                       <Send size={22} className="stroke-[2.2]" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">Notificações Externas</h2>
+                        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-discord-header">Notificações Externas</h2>
                         <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                           Telegram & Discord
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-500 dark:text-discord-muted mt-0.5">
                         Receba novas vagas diretamente no seu celular ou servidor sem precisar olhar o computador.
                       </p>
                     </div>
@@ -2178,13 +2168,13 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Bloco Telegram */}
-                  <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-4">
+                  <div className="p-5 rounded-2xl border border-slate-200 dark:border-discord-border bg-slate-50/50 dark:bg-discord-input/60 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-lg bg-[#229ED9] text-white flex items-center justify-center font-bold text-xs">
                           TG
                         </div>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">Telegram Bot</h4>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-discord-header">Telegram Bot</h4>
                       </div>
 
                       <label className="relative inline-flex items-center cursor-pointer">
@@ -2194,30 +2184,30 @@ export default function App() {
                           onChange={(e) => setExternalSettings(prev => ({ ...prev, telegramEnabled: e.target.checked }))}
                           className="sr-only peer" 
                         />
-                        <div className="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                        <div className="w-9 h-5 bg-slate-200 dark:bg-discord-card peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                       </label>
                     </div>
 
                     <div className="space-y-3 text-xs">
                       <div>
-                        <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Bot Token:</label>
+                        <label className="font-semibold text-slate-700 dark:text-discord-text block mb-1">Bot Token:</label>
                         <input
                           type="password"
                           value={externalSettings.telegramBotToken}
                           onChange={(e) => setExternalSettings(prev => ({ ...prev, telegramBotToken: e.target.value }))}
                           placeholder="Ex: 123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
-                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:border-indigo-500 font-mono text-[11px]"
+                          className="w-full px-3 py-2 bg-white dark:bg-discord-darkest border border-slate-200 dark:border-discord-border rounded-xl outline-none focus:border-indigo-500 font-mono text-[11px] text-slate-900 dark:text-discord-header"
                         />
                       </div>
 
                       <div>
-                        <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Chat ID / Canal:</label>
+                        <label className="font-semibold text-slate-700 dark:text-discord-text block mb-1">Chat ID / Canal:</label>
                         <input
                           type="text"
                           value={externalSettings.telegramChatId}
                           onChange={(e) => setExternalSettings(prev => ({ ...prev, telegramChatId: e.target.value }))}
                           placeholder="Ex: 987654321 ou @meucanal"
-                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:border-indigo-500 font-mono text-[11px]"
+                          className="w-full px-3 py-2 bg-white dark:bg-discord-darkest border border-slate-200 dark:border-discord-border rounded-xl outline-none focus:border-indigo-500 font-mono text-[11px] text-slate-900 dark:text-discord-header"
                         />
                       </div>
 
@@ -2225,7 +2215,7 @@ export default function App() {
                         type="button"
                         onClick={() => handleTestExternal('telegram')}
                         disabled={isTestingTelegram || !externalSettings.telegramBotToken || !externalSettings.telegramChatId}
-                        className="w-full py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-[#229ED9] hover:text-white transition-all font-bold text-xs cursor-pointer disabled:opacity-40"
+                        className="w-full py-2 px-3 rounded-xl bg-slate-200 dark:bg-discord-card hover:bg-[#229ED9] hover:text-white transition-all font-bold text-xs cursor-pointer disabled:opacity-40 text-slate-700 dark:text-discord-header"
                       >
                         {isTestingTelegram ? 'Enviando teste...' : 'Testar Mensagem no Telegram'}
                       </button>
@@ -2233,13 +2223,13 @@ export default function App() {
                   </div>
 
                   {/* Bloco Discord */}
-                  <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-4">
+                  <div className="p-5 rounded-2xl border border-slate-200 dark:border-discord-border bg-slate-50/50 dark:bg-discord-input/60 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-lg bg-[#5865F2] text-white flex items-center justify-center font-bold text-xs">
                           DC
                         </div>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">Discord Webhook</h4>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-discord-header">Discord Webhook</h4>
                       </div>
 
                       <label className="relative inline-flex items-center cursor-pointer">
@@ -2249,19 +2239,19 @@ export default function App() {
                           onChange={(e) => setExternalSettings(prev => ({ ...prev, discordEnabled: e.target.checked }))}
                           className="sr-only peer" 
                         />
-                        <div className="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                        <div className="w-9 h-5 bg-slate-200 dark:bg-discord-card peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                       </label>
                     </div>
 
                     <div className="space-y-3 text-xs">
                       <div>
-                        <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Webhook URL:</label>
+                        <label className="font-semibold text-slate-700 dark:text-discord-text block mb-1">Webhook URL:</label>
                         <input
                           type="password"
                           value={externalSettings.discordWebhookUrl}
                           onChange={(e) => setExternalSettings(prev => ({ ...prev, discordWebhookUrl: e.target.value }))}
                           placeholder="https://discord.com/api/webhooks/..."
-                          className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:border-indigo-500 font-mono text-[11px]"
+                          className="w-full px-3 py-2 bg-white dark:bg-discord-darkest border border-slate-200 dark:border-discord-border rounded-xl outline-none focus:border-indigo-500 font-mono text-[11px] text-slate-900 dark:text-discord-header"
                         />
                       </div>
 
@@ -2270,7 +2260,7 @@ export default function App() {
                           type="button"
                           onClick={() => handleTestExternal('discord')}
                           disabled={isTestingDiscord || !externalSettings.discordWebhookUrl}
-                          className="w-full py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-[#5865F2] hover:text-white transition-all font-bold text-xs cursor-pointer disabled:opacity-40"
+                          className="w-full py-2 px-3 rounded-xl bg-slate-200 dark:bg-discord-card hover:bg-[#5865F2] hover:text-white transition-all font-bold text-xs cursor-pointer disabled:opacity-40 text-slate-700 dark:text-discord-header"
                         >
                           {isTestingDiscord ? 'Enviando teste...' : 'Testar Embed no Discord'}
                         </button>
@@ -2290,21 +2280,21 @@ export default function App() {
               </div>
 
               {/* CARTÃO 2: HEALTH CHECK & MONITOR DAS 7 FONTES NACIONAIS */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-sm space-y-6">
-                <div className="flex items-center justify-between flex-wrap gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-discord-card rounded-2xl border border-slate-200 dark:border-discord-border p-6 sm:p-8 shadow-sm space-y-6">
+                <div className="flex items-center justify-between flex-wrap gap-4 pb-4 border-b border-slate-100 dark:border-discord-border">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl text-white shadow-xs">
                       <Activity size={22} className="stroke-[2.2]" />
                     </div>
                     <div>
-                      <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">Health Check & Fontes Nacionais</h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-discord-header">Health Check & Fontes Nacionais</h2>
+                      <p className="text-xs text-slate-500 dark:text-discord-muted mt-0.5">
                         Status operacional em tempo real de cada uma das 7 plataformas integradas.
                       </p>
                     </div>
                   </div>
 
-                  <span className="px-3 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1.5">
+                  <span className="px-3 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     7 de 7 Operando
                   </span>
@@ -2314,22 +2304,22 @@ export default function App() {
                   {PLATFORMS_INFO.map((p) => {
                     const count = jobs.filter(j => j.source.toLowerCase().includes(p.id)).length;
                     return (
-                      <div key={p.id} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex flex-col justify-between gap-3">
+                      <div key={p.id} className="p-4 rounded-xl border border-slate-200 dark:border-discord-border bg-slate-50/50 dark:bg-discord-input/60 flex flex-col justify-between gap-3">
                         <div className="flex items-center justify-between">
-                          <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100">{p.name}</h4>
+                          <h4 className="font-bold text-sm text-slate-900 dark:text-discord-header">{p.name}</h4>
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
                             <CheckCircle size={10} /> Online
                           </span>
                         </div>
 
-                        <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                        <div className="space-y-1 text-xs text-slate-500 dark:text-discord-muted">
                           <div className="flex justify-between">
                             <span>Protocolo:</span>
-                            <span className="font-mono text-slate-700 dark:text-slate-300">{p.type}</span>
+                            <span className="font-mono text-slate-700 dark:text-discord-text">{p.type}</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Latência:</span>
-                            <span className="font-mono text-slate-700 dark:text-slate-300">{p.latency}</span>
+                            <span className="font-mono text-slate-700 dark:text-discord-text">{p.latency}</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Vagas no banco:</span>
@@ -2343,20 +2333,20 @@ export default function App() {
               </div>
 
               {/* CARTÃO 3: AVISOS PROGRAMÁVEIS (WINDOWS) */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-sm space-y-6">
-                <div className="flex items-start justify-between flex-wrap gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-discord-card rounded-2xl border border-slate-200 dark:border-discord-border p-6 sm:p-8 shadow-sm space-y-6">
+                <div className="flex items-start justify-between flex-wrap gap-4 pb-4 border-b border-slate-100 dark:border-discord-border">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl text-white shadow-xs">
                       <BellRing size={22} className="stroke-[2.2]" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">Avisos Programáveis (Windows)</h2>
+                        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-discord-header">Avisos Programáveis (Windows)</h2>
                         <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                           Filtro Inteligente
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-500 dark:text-discord-muted mt-0.5">
                         Defina exatamente para quais vagas você quer receber notificações no Windows.
                       </p>
                     </div>
@@ -2365,7 +2355,7 @@ export default function App() {
                   <button
                     onClick={handleTestNotification}
                     disabled={isTestingNotify}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 dark:bg-discord-input hover:bg-slate-200 dark:hover:bg-discord-hover active:scale-95 text-slate-700 dark:text-discord-header rounded-xl text-xs font-semibold border border-slate-200 dark:border-discord-border transition-all cursor-pointer shadow-2xs disabled:opacity-50"
                     title="Dispara um balão de notificação no Windows para testar"
                   >
                     <BellRing size={13} className={isTestingNotify ? 'animate-bounce text-indigo-600' : 'text-slate-500'} />
@@ -2375,7 +2365,7 @@ export default function App() {
 
                 {/* Seletor de Modo de Aviso */}
                 <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
+                  <label className="text-xs font-bold text-slate-700 dark:text-discord-text uppercase tracking-wider block">
                     Modo de Disparo das Notificações
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2384,19 +2374,19 @@ export default function App() {
                       onClick={() => handleToggleNotifyMode(true)}
                       className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-2 ${
                         notifyAllRoles
-                          ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-xs'
-                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300'
+                          ? 'border-indigo-600 bg-indigo-50/50 dark:bg-discord-hover/70 shadow-xs'
+                          : 'border-slate-200 dark:border-discord-border bg-white dark:bg-discord-input/50 hover:border-slate-300'
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Todas as Oportunidades</span>
+                        <span className="text-xs font-bold text-slate-900 dark:text-discord-header">Todas as Oportunidades</span>
                         <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                          notifyAllRoles ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'
+                          notifyAllRoles ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-discord-border'
                         }`}>
                           {notifyAllRoles && <Check size={10} className="stroke-[3]" />}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      <p className="text-[11px] text-slate-500 dark:text-discord-muted leading-relaxed">
                         Avisar sempre que qualquer nova vaga for encontrada na varredura.
                       </p>
                     </button>
@@ -2406,24 +2396,24 @@ export default function App() {
                       onClick={() => handleToggleNotifyMode(false)}
                       className={`p-4 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between gap-2 ${
                         !notifyAllRoles
-                          ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-xs'
-                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/40 hover:border-slate-300'
+                          ? 'border-indigo-600 bg-indigo-50/50 dark:bg-discord-hover/70 shadow-xs'
+                          : 'border-slate-200 dark:border-discord-border bg-white dark:bg-discord-input/50 hover:border-slate-300'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Apenas Cargos Selecionados</span>
+                          <span className="text-xs font-bold text-slate-900 dark:text-discord-header">Apenas Cargos Selecionados</span>
                           <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                             Sem Spam
                           </span>
                         </div>
                         <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                          !notifyAllRoles ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'
+                          !notifyAllRoles ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-discord-border'
                         }`}>
                           {!notifyAllRoles && <Check size={10} className="stroke-[3]" />}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      <p className="text-[11px] text-slate-500 dark:text-discord-muted leading-relaxed">
                         Notificar apenas quando a vaga pertencer aos cargos ou termos abaixo.
                       </p>
                     </button>
@@ -2434,10 +2424,10 @@ export default function App() {
                 <div className="space-y-3 pt-2">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                      <h4 className="text-xs font-bold text-slate-700 dark:text-discord-text uppercase tracking-wider">
                         Cargos de Interesse
                       </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="text-[11px] text-slate-500 dark:text-discord-muted">
                         Selecione as áreas que devem acionar a notificação no Windows
                       </p>
                     </div>
@@ -2457,19 +2447,19 @@ export default function App() {
                           onClick={() => handleToggleNotifyRole(role.id)}
                           className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
                             isSelected
-                              ? 'bg-indigo-50/60 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-700 text-slate-900 dark:text-slate-100 shadow-2xs'
-                              : 'bg-white dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300'
+                              ? 'bg-indigo-50/60 dark:bg-discord-hover border-indigo-300 dark:border-indigo-600 text-slate-900 dark:text-discord-header shadow-2xs'
+                              : 'bg-white dark:bg-discord-input/60 border-slate-200 dark:border-discord-border text-slate-600 dark:text-discord-muted hover:border-slate-300'
                           }`}
                         >
                           <div className="min-w-0">
-                            <p className="text-xs font-bold truncate text-slate-900 dark:text-slate-100">{role.label}</p>
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{role.desc}</p>
+                            <p className="text-xs font-bold truncate text-slate-900 dark:text-discord-header">{role.label}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-discord-muted truncate">{role.desc}</p>
                           </div>
 
                           <div className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 transition-all ${
                             isSelected 
                               ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs' 
-                              : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700'
+                              : 'border-slate-300 dark:border-discord-border bg-white dark:bg-discord-card'
                           }`}>
                             {isSelected && <Check size={12} className="stroke-[3]" />}
                           </div>
@@ -2482,10 +2472,10 @@ export default function App() {
                 {/* Palavras-chave Customizadas */}
                 <div className="space-y-3 pt-2">
                   <div>
-                    <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    <h4 className="text-xs font-bold text-slate-700 dark:text-discord-text uppercase tracking-wider">
                       Termos e Palavras-chave Adicionais
                     </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <p className="text-[11px] text-slate-500 dark:text-discord-muted">
                       Receba alertas também se o título da vaga contiver algum destes termos
                     </p>
                   </div>
@@ -2498,7 +2488,7 @@ export default function App() {
                         value={newKeywordInput}
                         onChange={(e) => setNewKeywordInput(e.target.value)}
                         placeholder="Ex: Home Office, Desenvolvedor, Design, PCD, React..."
-                        className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 transition-all"
+                        className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-discord-input border border-slate-200 dark:border-discord-border rounded-xl text-xs text-slate-800 dark:text-discord-header placeholder-slate-400 dark:placeholder-discord-muted focus:outline-none focus:border-indigo-500 transition-all"
                       />
                     </div>
                     <button
@@ -2516,7 +2506,7 @@ export default function App() {
                       {customNotifyKeywords.map((kw) => (
                         <span
                           key={kw}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-800 dark:text-slate-200 transition-colors"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 dark:bg-discord-input hover:bg-slate-200 dark:hover:bg-discord-hover border border-slate-200 dark:border-discord-border rounded-lg text-xs font-medium text-slate-800 dark:text-discord-header transition-colors"
                         >
                           <span>{kw}</span>
                           <button
@@ -2531,7 +2521,7 @@ export default function App() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[11px] text-slate-400 italic">
+                    <p className="text-[11px] text-slate-400 dark:text-discord-muted italic">
                       Nenhum termo adicional cadastrado.
                     </p>
                   )}
@@ -2539,17 +2529,17 @@ export default function App() {
               </div>
 
               {/* CARTÃO 4: MOTOR DE MONITORAMENTO & SISTEMA */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-sm space-y-6">
+              <div className="bg-white dark:bg-discord-card rounded-2xl border border-slate-200 dark:border-discord-border p-6 sm:p-8 shadow-sm space-y-6">
                 <div>
-                  <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 mb-0.5">Motor de Monitoramento & Sistema</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Parâmetros do processo nativo em segundo plano e scrapers.</p>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-discord-header mb-0.5">Motor de Monitoramento & Sistema</h3>
+                  <p className="text-xs text-slate-500 dark:text-discord-muted">Parâmetros do processo nativo em segundo plano e scrapers.</p>
                 </div>
 
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-discord-input/60 rounded-xl border border-slate-200 dark:border-discord-border">
                     <div>
-                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100">Notificações Toast do Windows</h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">Exibir balão nativo no canto da tela ao encontrar novas vagas</p>
+                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-discord-header">Notificações Toast do Windows</h4>
+                      <p className="text-[11px] text-slate-500 dark:text-discord-muted">Exibir balão nativo no canto da tela ao encontrar novas vagas</p>
                     </div>
                     <button
                       onClick={handleToggleMute}
@@ -2561,10 +2551,10 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-discord-input/60 rounded-xl border border-slate-200 dark:border-discord-border">
                     <div>
-                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100">Rotina em Segundo Plano</h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">Varreduras periódicas a cada 15 minutos (com cache local resiliente)</p>
+                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-discord-header">Rotina em Segundo Plano</h4>
+                      <p className="text-[11px] text-slate-500 dark:text-discord-muted">Varreduras periódicas a cada 15 minutos (com cache local resiliente)</p>
                     </div>
                     <button
                       onClick={handleTogglePause}
@@ -2576,10 +2566,10 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-discord-input/60 rounded-xl border border-slate-200 dark:border-discord-border">
                     <div>
-                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100">Bandeja do Sistema (System Tray)</h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">Ao fechar a janela, o aplicativo permanece rodando discretamente na bandeja</p>
+                      <h4 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-discord-header">Bandeja do Sistema (System Tray)</h4>
+                      <p className="text-[11px] text-slate-500 dark:text-discord-muted">Ao fechar a janela, o aplicativo permanece rodando discretamente na bandeja</p>
                     </div>
                     <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 rounded-lg">
                       Habilitado
