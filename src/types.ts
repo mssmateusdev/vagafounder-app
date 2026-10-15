@@ -7,7 +7,7 @@ export interface Filter {
   active: boolean;
 }
 
-export type JobSource = 'linkedin' | 'gupy' | 'indeed' | string;
+export type JobSource = 'linkedin' | 'gupy' | 'indeed' | 'vagas' | 'trabalhabrasil' | 'infojobs' | 'catho' | string;
 
 export interface Job {
   id: string;
@@ -19,8 +19,10 @@ export interface Job {
   type: string;
   publishedAt: string;
   url: string;
-  source: 'linkedin' | 'gupy' | 'indeed' | JobSource;
+  source: JobSource;
   description?: string;
+  salary?: string;
+  benefits?: string[];
   favorite?: boolean;
   applied?: boolean;
   dismissed?: boolean;
@@ -39,6 +41,14 @@ export interface NotificationSettings {
   keywords: string[];
 }
 
+export interface ExternalNotifySettings {
+  telegramEnabled: boolean;
+  telegramBotToken: string;
+  telegramChatId: string;
+  discordEnabled: boolean;
+  discordWebhookUrl: string;
+}
+
 export interface MonitorStatus {
   paused: boolean;
   muted: boolean;
@@ -47,4 +57,24 @@ export interface MonitorStatus {
   lastCheckAt?: string | null;
   sources: SourceStatus[];
   notificationSettings?: NotificationSettings;
+  externalNotificationSettings?: ExternalNotifySettings;
+}
+
+export type KanbanStage = 'wishlist' | 'applied' | 'interview' | 'waiting' | 'offer';
+
+export interface KanbanApplication {
+  id: string;
+  jobId: string;
+  title: string;
+  company: string;
+  location: string;
+  modality?: string;
+  url: string;
+  source: string;
+  salary?: string;
+  benefits?: string[];
+  stage: KanbanStage;
+  notes?: string;
+  appliedAt: string;
+  updatedAt: string;
 }

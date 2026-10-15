@@ -11,7 +11,7 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4+-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
-*Desenvolvido com foco em alta performance nativa, baixo consumo de memória e produtividade na busca por vagas de emprego.*
+*Desenvolvido com foco em alta performance nativa, baixo consumo de memória e máxima produtividade na busca por vagas de emprego.*
 
 **by: MateusDeveloper**
 
@@ -21,57 +21,69 @@
 
 ## 📌 Sobre o VagaFounder
 
-O **VagaFounder** é uma aplicação desktop nativa desenvolvida com o ecossistema **Tauri v2 (Rust)** no backend e **React + TypeScript + Tailwind CSS** no frontend. 
+O **VagaFounder** é uma aplicação desktop nativa desenvolvida com o ecossistema **Tauri v2 (Rust)** no backend e **React 19 + TypeScript + Tailwind CSS** no frontend. 
 
-A aplicação automatiza a busca e o monitoramento contínuo de vagas nas maiores plataformas de contratação do mercado — **Gupy**, **LinkedIn** e **Indeed** —, agregando centenas de oportunidades em uma interface limpa, unificada e altamente produtiva.
+A aplicação automatiza a busca e o monitoramento contínuo de vagas nas **7 maiores plataformas de contratação do Brasil**:
+1. 🏢 **Gupy** (API JSON Oficial em Lotes de 100)
+2. 💼 **LinkedIn** (Guest API Paginada em Lotes)
+3. 🔎 **Indeed** (Busca Integrada Resiliente)
+4. 📄 **Vagas.com** (Web Scraper SSR com Extração de Salário)
+5. 🇧🇷 **Trabalha Brasil / SINE** (Web Scraper SSR Direto)
+6. 🎯 **InfoJobs** (Web Scraper SSR com Cards Semânticos)
+7. 🌟 **Catho** (Web Scraper SSR para Vagas Abertas)
 
 Com suporte a escopo geográfico regional (**Recife e região metropolitana em até 80 km**) e vagas **Remotas em todo o Brasil**, o VagaFounder filtra oportunidades para diferentes perfis profissionais: desde *Jovem Aprendiz*, *Estágio* e *Auxiliar Administrativo* até *Suporte de TI*, *Recursos Humanos (RH)* e *Desenvolvimento de Software*.
 
 ---
 
-## ✨ Principais Funcionalidades
+## ✨ Principais Funcionalidades (Versão 1.1.0)
 
-### 🚀 Varredura Paralela em Rust (Alta Performance)
-* **Scraping Concorrente Assíncrono:** O backend em Rust dispara requisições concorrentes com controle de taxa (`tokio::sync::Semaphore`) para raspar simultaneamente Gupy, LinkedIn e Indeed.
-* **Integração Gupy Pública:** Coleta direta via endpoint JSON com lotes paginados de `limit=100` e paginação sequencial (`offset=100`, `offset=200`).
-* **LinkedIn Guest API Paginada:** Extração em lotes de 10 a 25 resultados por requisição (`start=0`, `start=25`, `start=50`, `start=75`) com extração de datas e links canônicos de inscrição.
-* **Indeed WebView:** Extração de cards via motor de navegador headless para transpassar validações anti-robô e coletar lotes múltiplos (`start=0`, `start=10`, `start=20`).
-* **Deduplicação Inteligente:** Algoritmo que indexa por identificadores únicos de vaga, preservando aberturas reais sem colapsar empresas com múltiplos cargos iguais.
+### 🏆 Funil de Candidaturas (Kanban de Processos Seletivos)
+* **Gestão Visual Completa:** Acompanhe suas vagas em 5 colunas estruturadas:
+  - 📝 **Interesse** (vagas que pretendo me candidatar)
+  - ✉️ **Inscrito** (currículo enviado)
+  - 💬 **Entrevista / Teste** (em contato ou processo seletivo)
+  - ⏳ **Aguardando Retorno** (feedback da empresa)
+  - 🎉 **Aprovado / Proposta** (ofertas e conquistas)
+* **Ações Instantâneas:** Envie qualquer vaga da busca ou tabela diretamente para o Funil com 1 clique.
+* **Anotações de Progresso:** Adicione anotações inline para registrar datas de entrevistas, contatos do recrutador ou feedbacks.
+* **Cadastro Manual de Vagas:** Cadastre oportunidades externas (ex: indicações, WhatsApp, e-mail) com empresa, salário, localidade e link.
 
-### 🎯 Filtros Unificados em Linha Única (Toolbar Compacta)
-* **Busca Textual em Tempo Real:** Filtre instantaneamente por palavra-chave no título, nome da empresa ou localidade.
-* **Filtro de Período:** *Todas*, *Últimas 24h*, *Últimos 3 dias*, *Últimos 7 dias* e *Últimos 30 dias*.
-* **Filtro de Local / Modalidade:** *Todos os Locais*, *Recife*, *Jaboatão dos Guararapes*, *Grande Recife (Raio 80km)*, *Apenas Presencial*, *Híbrido* e *Remoto (Home Office)*.
-* **Filtro de Área / Cargo:** *Todos os Cargos*, *TI & Dev*, *Jovem Aprendiz*, *Estágio*, *Auxiliar Administrativo*, *Recursos Humanos (RH)*, *Suporte de TI* e *Atendimento / Recepção*.
-* **Pills de Fonte Rápidas:** Alterne com um clique entre *Todas*, *LinkedIn*, *Gupy* e *Indeed*.
+### 📱 Notificações Externas (Telegram & Discord)
+* **Integração Telegram Bot:** Receba alertas instantâneos no seu celular via bot do Telegram com mensagem HTML formatada (título, empresa, local, salário, benefícios e botão direto para candidatura).
+* **Integração Discord Webhook:** Notifique canais ou servidores no Discord via Rich Embeds com cores personalizadas e botões de ação.
+* **Painel de Teste:** Teste e valide a conexão com o Telegram e Discord com 1 clique na aba de Configurações.
 
-### 🔍 Modal de Detalhes da Vaga (Pré-visualização Sob Demanda)
-* **Clique no Título da Vaga:** Abre um pop-up centralizado com backdrop suave e tipografia legível sem sair da aplicação.
-* **Carregamento Híbrido:** Exibe a descrição já coletada no lote ou faz busca sob demanda em background via comando nativo (`get_job_description`).
-* **Formatação Inteligente:** Suporte a textos com parágrafos, listas estruturadas e negritos sanitizados.
-* **Acessibilidade:** Suporte a tecla `ESC` para fechar, clique fora do pop-up e bloqueio do scroll inferior durante a exibição.
+### 💰 Extrator Inteligente de Salário & Benefícios em Destaque
+* **Parser de Remuneração:** Extrai automaticamente faixas salariais em Real (R$) presentes no título ou na descrição da vaga.
+* **Extrator de Benefícios:** Identifica e destaca tags visuais de benefícios como:
+  - Vale Refeição (VR) & Vale Alimentação (VA)
+  - Vale Transporte (VT)
+  - Plano de Saúde & Odontológico
+  - Home Office / Trabalho Remoto
+  - Gympass / TotalPass
+  - Seguro de Vida
+  - Participação nos Lucros (PLR)
+  - Day Off de Aniversário
+* **Filtros Rápidos:** Botões na toolbar para filtrar instantaneamente *"Apenas Vagas com Salário"* e *"Apenas Vagas com Benefícios"*.
 
-### 📊 Paginação & Visualização Flexível
-* **Controle de Paginação:** Navegação fluida no rodapé com seletor de registros por página (`[25 | 50 | 100]`), páginas numéricas dinâmicas e indicador *"Exibindo 1–25 de X vagas"*.
-* **Alternador de Visualização:** Escolha entre **Modo Tabela Detalhada** e **Modo Grade / Cards**.
-* **Gestão de Candidaturas:** Ações rápidas para **Favoritar / Salvar Vaga**, marcar como **"Já me candidatei"** e **Ocultar Vagas**.
+### 🖥️ Split-View & Modos de Visualização
+* **Modo Tabela Completa:** Ideal para visão analítica e triagem rápida com paginação de 25, 50 ou 100 vagas por página.
+* **Modo Grade / Cards:** Visualização moderna em cartões com destaques visuais de empresa, localidade, remuneração e benefícios.
+* **Modo Split-View (2 Colunas):** Lista rápida à esquerda e pré-visualização completa fixa à direita com descrição integral da vaga, sem precisar abrir modais.
 
-### 🔔 Execução em Segundo Plano & Bandeja do Sistema (Tray)
-* **Monitoramento Contínuo:** Varreduras em background automáticas a cada 15 minutos sem consumir CPU desnecessária.
-* **System Tray Nativo:** Fechar a janela principal oculta o aplicativo para a bandeja do sistema (Windows/macOS/Linux) em vez de encerrar o processo.
-* **Menu de Contexto do Tray:**
-  - *Abrir Painel* (traz a janela para foco).
-  - *Pausar / Retomar Monitoramento*.
-  - *Verificar Vagas Agora* (varredura instantânea).
-  - *Sair* (encerra o aplicativo definitivamente).
-* **Notificações do Sistema:** Alertas nativos no Windows/Linux/macOS sempre que novas vagas compatíveis forem encontradas.
+### 🌓 Dark Mode & Acessibilidade Total
+* **Tema Escuro Nativo:** Alternador de Modo Claro / Modo Escuro persistido localmente e calibrado para alto contraste e conforto visual.
+* **Navegação 100% por Teclado:**
+  - `Ctrl + K` ou `/`: Foca instantaneamente na barra de busca.
+  - `↑` e `↓`: Navega entre as vagas da lista e atualiza o Split-View.
+  - `Espaço`: Abre o pop-up com todos os detalhes da vaga.
+  - `F`: Salva ou remove a vaga dos favoritos.
+  - `Enter`: Abre o link oficial de candidatura no navegador padrão.
+  - `Esc`: Fecha o modal ou limpa o campo de busca.
 
-### 🔔 Avisos Programáveis & Filtro Inteligente de Notificações
-* **Controle Total de Alertas:** Escolha entre receber avisos de todas as oportunidades ou programar notificações apenas para vagas de seu interesse direto.
-* **Filtro por Áreas / Cargos:** Ative ou desative notificações independentes para *Jovem Aprendiz*, *Estágio*, *Auxiliar Administrativo*, *Recursos Humanos (RH)*, *Suporte de TI*, *Tecnologia & Dev* e *Atendimento / Recepção*.
-* **Palavras-chave Customizadas:** Cadastre termos adicionais (ex: *Home Office*, *React*, *Design*, *PCD*) para disparar alertas mesmo quando a vaga tiver nomenclatura alternativa.
-* **Sem Spam:** O motor em background (a cada 15 min) e as buscas manuais filtram novas vagas contra suas regras antes de emitir balões Toast no Windows.
-* **Botão de Teste Integrado:** Teste o envio imediato da notificação nativa diretamente na aba de Configurações.
+### 🩺 Health Check & Monitor de Fontes
+* Monitor em tempo real na aba de Configurações com status operacional, protocolo de conexão, latência estimada e contagem de vagas indexadas para cada uma das 7 plataformas.
 
 ---
 
@@ -81,37 +93,46 @@ Com suporte a escopo geográfico regional (**Recife e região metropolitana em a
 graph TD
     subgraph Frontend [React 19 + TypeScript + Tailwind CSS]
         UI[Painel de Vagas & Toolbar]
+        Kanban[Funil de Candidaturas Kanban]
+        Split[Modo Split-View 2 Colunas]
         Modal[JobDetailsModal]
-        Storage[LocalStorage: Favoritos & Candidaturas]
+        Storage[LocalStorage: Favoritos, Candidaturas & Kanban]
     end
 
     subgraph IPC [Tauri v2 Inter-Process Communication]
-        Cmds[invoke: scan_now / get_job_description / open_url]
+        Cmds[invoke: scan_now / get_job_description / open_url / notify]
         Events[emit: jobs-updated / monitor-status]
     end
 
     subgraph Backend [Rust Core]
         Worker[Background Worker Loop]
         Tray[System Tray & Window Lifecycle]
-        Dedupe[Deduplicação & Normalização de Raio 80km]
-        Cache[In-Memory Job Cache]
+        Dedupe[Deduplicação & Raio 80km]
+        SalaryParser[Extrator de Salário e Benefícios]
+        ExtNotify[Notificador Telegram & Discord]
+        Cache[In-Memory & Persistent Cache]
     end
 
-    subgraph Scrapers [Scrapers Paralelos Tokio]
+    subgraph Scrapers [7 Scrapers Paralelos Tokio]
         GupyAPI[Gupy: Public API JSON limit=100]
         LinkedInAPI[LinkedIn: Guest API Paginada]
-        IndeedWeb[Indeed: WebView2 Headless Scraper]
+        IndeedWeb[Indeed: Busca Integrada]
+        VagasWeb[Vagas.com: SSR Scraper]
+        TrabWeb[Trabalha Brasil: SSR Scraper]
+        InfoWeb[InfoJobs: SSR Scraper]
+        CathoWeb[Catho: SSR Scraper]
     end
 
     UI --> Cmds
+    Kanban --> Storage
     Cmds --> Backend
     Worker --> Scrapers
-    Scrapers --> Dedupe
+    Scrapers --> SalaryParser
+    SalaryParser --> Dedupe
     Dedupe --> Cache
+    Dedupe --> ExtNotify
     Cache --> Events
     Events --> UI
-    Modal --> Cmds
-    Backend --> Tray
 ```
 
 ---
@@ -121,11 +142,11 @@ graph TD
 | Camada | Tecnologia | Descrição |
 |---|---|---|
 | **Shell Nativo** | [Tauri v2](https://tauri.app/) | Runtime desktop ultra-leve baseado em WebView2 (Windows) e WebKit (Linux/macOS) |
-| **Backend** | [Rust](https://www.rust-lang.org/) | Concorrência segura, parsing assíncrono e baixo consumo de recursos |
-| **Scraping & HTTP** | [Reqwest](https://docs.rs/reqwest/) + [Scraper](https://docs.rs/scraper/) | Requisições HTTP com keep-alive e seletores CSS |
-| **Frontend** | [React 19](https://react.dev/) | Construção declarativa da interface |
+| **Backend** | [Rust](https://www.rust-lang.org/) | Concorrência assíncrona com `tokio`, parsing seguro e consumo mínimo de memória RAM |
+| **Scraping & HTTP** | [Reqwest](https://docs.rs/reqwest/) + [Scraper](https://docs.rs/scraper/) | Requisições HTTP concorrentes com controle de semáforo e seletores CSS |
+| **Frontend** | [React 19](https://react.dev/) | Interface declarativa de alta reatividade |
 | **Linguagem Frontend** | [TypeScript](https://www.typescriptlang.org/) | Tipagem estrita ponta a ponta |
-| **Estilização** | [Tailwind CSS v3](https://tailwindcss.com/) | Sistema de design moderno, limpo e responsivo |
+| **Estilização & Tema** | [Tailwind CSS v3](https://tailwindcss.com/) | Design moderno com suporte nativo a Dark Mode e Split-View |
 | **Ícones & Datas** | [Lucide React](https://lucide.dev/) + [Date-fns](https://date-fns.org/) | Ícones consistentes e formatação de datas em pt-BR |
 | **Bundler** | [Vite 5](https://vitejs.dev/) | HMR instantâneo e compilação otimizada |
 
@@ -136,10 +157,7 @@ graph TD
 ### Pré-requisitos
 1. **Node.js**: versão 18 ou superior.
 2. **Rust & Cargo**: versão estável recomendada ([instalar via rustup](https://rustup.rs/)).
-3. **Dependências do Tauri para o seu sistema:**
-   - **Windows:** Microsoft C++ Build Tools e WebView2 (já incluso no Windows 10/11).
-   - **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libappindicator3-dev librsvg2-dev`
-   - **macOS:** Xcode Command Line Tools (`xcode-select --install`).
+3. **Microsoft C++ Build Tools & WebView2** (no Windows).
 
 ### Passo a Passo
 
@@ -149,79 +167,27 @@ graph TD
    cd vagafounder-app
    ```
 
-2. **Instale as dependências do frontend:**
+2. **Instale as dependências:**
    ```bash
    npm install
    ```
 
 3. **Inicie em modo de desenvolvimento:**
    ```bash
-   npm run tauri dev
+   npm run tauri:dev
    ```
-   *O Vite iniciará o servidor local e o Tauri compilará o backend Rust abrindo a janela do aplicativo.*
 
 ---
 
-## 🔨 Como Gerar os Instaladores (Build de Produção)
+## 🔨 Como Gerar os Instaladores de Produção
 
 ### Build Local (Windows)
-Para gerar o instalador executável (`.exe`) e o pacote MSI no Windows:
 ```bash
 npm run tauri:build
 ```
 Os arquivos gerados ficarão disponíveis em:
-- **Instalador NSIS (.exe):** `src-tauri/target/release/bundle/nsis/VagaFounder_1.0.0_x64-setup.exe`
-- **Pacote MSI (.msi):** `src-tauri/target/release/bundle/msi/VagaFounder_1.0.0_x64_en-US.msi`
-
-### Builds Multiplataforma (CI/CD Automático)
-O projeto inclui um workflow de automação via **GitHub Actions** ([`.github/workflows/release.yml`](.github/workflows/release.yml)). Ao criar e enviar uma tag de versão:
-
-```bash
-git tag -a v1.0.0 -m "Release v1.0.0"
-git push origin v1.0.0
-```
-
-O GitHub Actions compila automaticamente em máquinas virtuais dedicadas:
-* 🪟 **Windows:** `.exe` (NSIS) e `.msi`
-* 🐧 **Linux:** `.deb` e `.AppImage`
-* 🍎 **macOS:** `.dmg` (Universal binary para chips Apple Silicon e Intel)
-
-E disponibiliza os binários diretamente na aba [Releases](https://github.com/mssmateusdev/vagafounder-app/releases).
-
----
-
-## 📁 Estrutura de Diretórios
-
-```
-vagafounder-app/
-├── .github/
-│   └── workflows/
-│       └── release.yml          # Pipeline CI/CD para compilação multiplataforma
-├── src/                         # Frontend React
-│   ├── assets/                  # Imagens e vetores
-│   ├── components/
-│   │   └── JobDetailsModal.tsx  # Pop-up de pré-visualização e detalhes da vaga
-│   ├── App.tsx                  # Dashboard principal, toolbar e tabela
-│   ├── types.ts                 # Interfaces TypeScript (Job, Filter, MonitorStatus)
-│   ├── main.tsx                 # Ponto de entrada React
-│   └── index.css                # Estilos globais e Tailwind
-├── src-tauri/                   # Backend Rust Tauri
-│   ├── src/
-│   │   ├── sources/             # Módulos de busca e scraping
-│   │   │   ├── gupy.rs          # Scraper e integração com API pública do Gupy
-│   │   │   ├── linkedin.rs      # Scraper paginado da Guest API do LinkedIn
-│   │   │   ├── indeed.rs        # Scraper headless via WebView do Indeed
-│   │   │   └── mod.rs           # Cliente HTTP global e timeouts
-│   │   ├── lib.rs               # Estado global, IPC commands e background worker
-│   │   ├── tray.rs              # Configuração do System Tray e menu nativo
-│   │   ├── util.rs              # Classificação de cargos, raio de 80km e deduplicação
-│   │   └── main.rs              # Ponto de entrada Tauri
-│   ├── Cargo.toml               # Dependências Rust
-│   └── tauri.conf.json          # Configurações de janela, permissões e bundles
-├── package.json                 # Dependências Node.js e scripts
-├── tailwind.config.js           # Configurações do Tailwind CSS
-└── vite.config.ts               # Configuração do Vite com watch rules para Tauri
-```
+- **Instalador NSIS (.exe):** `src-tauri/target/release/bundle/nsis/VagaFounder_1.1.0_x64-setup.exe`
+- **Pacote MSI (.msi):** `src-tauri/target/release/bundle/msi/VagaFounder_1.1.0_x64_en-US.msi`
 
 ---
 

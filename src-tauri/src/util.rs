@@ -126,6 +126,77 @@ pub fn within_age(dt: &DateTime<Utc>) -> bool {
     Utc::now().signed_duration_since(*dt).num_days() <= MAX_AGE_DAYS
 }
 
+pub fn extract_salary(title: &str, desc: Option<&str>) -> Option<String> {
+    let combined = format!("{} {}", title, desc.unwrap_or(""));
+    let lower = combined.to_lowercase();
+
+    if let Some(pos) = lower.find("r$") {
+        let slice = &combined[pos..];
+        let end = slice
+            .find(|c: char| c == '\n' || c == '<' || c == '|' || c == ';' || c == '•')
+            .unwrap_or(slice.len().min(45));
+        let candidate = slice[..end].trim();
+        if candidate.len() >= 4 && candidate.len() <= 40 {
+            return Some(candidate.to_string());
+        }
+    }
+
+    if lower.contains("bolsa") {
+        if let Some(pos) = lower.find("bolsa") {
+            let slice = &combined[pos..];
+            let end = slice
+                .find(|c: char| c == '\n' || c == '<' || c == '|' || c == '•')
+                .unwrap_or(slice.len().min(40));
+            let candidate = slice[..end].trim();
+            if candidate.len() >= 5 && candidate.len() <= 40 {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
+    if lower.contains("a combinar") || lower.contains("salario a combinar") {
+        return Some("A combinar".to_string());
+    }
+
+    None
+}
+
+pub fn extract_benefits(title: &str, desc: Option<&str>) -> Vec<String> {
+    let combined = norm(&format!("{} {}", title, desc.unwrap_or("")));
+    let mut benefits = Vec::new();
+
+    if combined.contains("vale refeicao") || combined.contains("vale alimentacao") || combined.contains("vr") || combined.contains("va") || combined.contains("refeitorio") || combined.contains("caju") || combined.contains("flash") {
+        benefits.push("Vale Refeição / Alimentação".to_string());
+    }
+    if combined.contains("vale transporte") || combined.contains("vt") || combined.contains("auxilio transporte") || combined.contains("combustivel") {
+        benefits.push("Vale Transporte".to_string());
+    }
+    if combined.contains("plano de saude") || combined.contains("assistencia medica") || combined.contains("convenio medico") || combined.contains("unimed") || combined.contains("hapvida") || combined.contains("bradesco saude") || combined.contains("amil") {
+        benefits.push("Plano de Saúde".to_string());
+    }
+    if combined.contains("plano odontologico") || combined.contains("assistencia odontologica") || combined.contains("odonto") {
+        benefits.push("Plano Odontológico".to_string());
+    }
+    if combined.contains("home office") || combined.contains("auxilio home office") || combined.contains("ajuda de custo home") || combined.contains("remoto") {
+        benefits.push("Auxílio Remoto / Home Office".to_string());
+    }
+    if combined.contains("gympass") || combined.contains("totalpass") || combined.contains("academia") {
+        benefits.push("Gympass / Academia".to_string());
+    }
+    if combined.contains("seguro de vida") {
+        benefits.push("Seguro de Vida".to_string());
+    }
+    if combined.contains("plr") || combined.contains("participacao nos lucros") || combined.contains("bonus") || combined.contains("comissao") {
+        benefits.push("Bônus / PLR".to_string());
+    }
+    if combined.contains("day off") || combined.contains("folga de aniversario") {
+        benefits.push("Day Off Aniversário".to_string());
+    }
+
+    benefits.dedup();
+    benefits
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn make_job(
     id: String,
@@ -138,6 +209,8 @@ pub fn make_job(
     source: &str,
     description: Option<String>,
 ) -> Job {
+    let salary = extract_salary(&title, description.as_deref());
+    let benefits = extract_benefits(&title, description.as_deref());
     Job {
         id,
         r#type: classify(&title),
@@ -150,6 +223,8 @@ pub fn make_job(
         url,
         source: source.to_string(),
         description,
+        salary,
+        benefits,
     }
 }
 

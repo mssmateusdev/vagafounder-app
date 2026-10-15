@@ -32,10 +32,14 @@ pub struct Job {
     pub r#type: String,
     pub published_at: String,
     pub url: String,
-    /// "gupy" | "linkedin" | "indeed"
+    /// "gupy" | "linkedin" | "indeed" | "vagas" | "trabalhabrasil" | "infojobs" | "catho"
     pub source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salary: Option<String>,
+    #[serde(default)]
+    pub benefits: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +75,33 @@ pub struct NotificationSettings {
     pub keywords: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalNotifySettings {
+    #[serde(default)]
+    pub telegram_enabled: bool,
+    #[serde(default)]
+    pub telegram_bot_token: String,
+    #[serde(default)]
+    pub telegram_chat_id: String,
+    #[serde(default)]
+    pub discord_enabled: bool,
+    #[serde(default)]
+    pub discord_webhook_url: String,
+}
+
+impl Default for ExternalNotifySettings {
+    fn default() -> Self {
+        Self {
+            telegram_enabled: false,
+            telegram_bot_token: String::new(),
+            telegram_chat_id: String::new(),
+            discord_enabled: false,
+            discord_webhook_url: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MonitorStatus {
@@ -81,6 +112,7 @@ pub struct MonitorStatus {
     pub last_check_at: Option<String>,
     pub sources: Vec<SourceStatus>,
     pub notification_settings: NotificationSettings,
+    pub external_notification_settings: ExternalNotifySettings,
 }
 
 pub struct AppState {
@@ -94,6 +126,7 @@ pub struct AppState {
     notify_all_roles: AtomicBool,
     notify_roles: Mutex<Vec<String>>,
     notify_keywords: Mutex<Vec<String>>,
+    external_settings: Mutex<ExternalNotifySettings>,
     next_check_at: Mutex<Option<DateTime<Utc>>>,
     last_check_at: Mutex<Option<DateTime<Utc>>>,
     /// Acorda o worker (tray "Verificar agora" / retomar).
@@ -116,6 +149,7 @@ impl AppState {
                 roles: self.notify_roles.lock().unwrap().clone(),
                 keywords: self.notify_keywords.lock().unwrap().clone(),
             },
+            external_notification_settings: self.external_settings.lock().unwrap().clone(),
         }
     }
 }
@@ -180,17 +214,28 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     };
 
     let client = sources::client();
-    let sem = Semaphore::new(6);
+    let sem = Semaphore::new(8);
 
-    // 1. Executa primeiro as fontes HTTP rápidas (Gupy + LinkedIn) em paralelo
+    // 1. Executa todas as fontes HTTP rápidas em paralelo:
+    // Gupy, LinkedIn, Vagas.com, Trabalha Brasil, InfoJobs e Catho!
     let gupy_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::gupy::search(&client, &sem, k, s)));
     let li_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::linkedin::search(&client, &sem, k, s)));
-    let (gupy_res, li_res) = tokio::join!(gupy_f, li_f);
+    let vagas_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::vagas::search(&client, &sem, k, s)));
+    let tb_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::trabalhabrasil::search(&client, &sem, k, s)));
+    let ij_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::infojobs::search(&client, &sem, k, s)));
+    let catho_f = futures::future::join_all(qs.iter().map(|(k, s)| sources::catho::search(&client, &sem, k, s)));
+
+    let (gupy_res, li_res, vagas_res, tb_res, ij_res, catho_res) =
+        tokio::join!(gupy_f, li_f, vagas_f, tb_f, ij_f, catho_f);
 
     let mut all = Vec::new();
     let mut statuses = vec![
         summarize("gupy", gupy_res, &mut all),
         summarize("linkedin", li_res, &mut all),
+        summarize("vagas", vagas_res, &mut all),
+        summarize("trabalhabrasil", tb_res, &mut all),
+        summarize("infojobs", ij_res, &mut all),
+        summarize("catho", catho_res, &mut all),
     ];
 
     // Se houve busca com termo personalizado, preserva o histórico de vagas já encontradas
@@ -202,11 +247,11 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     let mid_jobs = dedupe_sort(all.clone());
     *state.cached_jobs.lock().unwrap() = mid_jobs.clone();
     *state.sources.lock().unwrap() = statuses.clone();
-    // Emite IMEDIATAMENTE para o frontend! O usuário já vê as vagas em 1-2 segundos!
+    // Emite IMEDIATAMENTE para o frontend! O usuário já vê as primeiras vagas em segundos!
     let _ = app.emit("jobs-updated", &mid_jobs);
     emit_status(app);
 
-    // 2. Executa Indeed de forma não-bloqueante com timeout curto
+    // 2. Executa Indeed de forma não-bloqueante
     let mut indeed_results = Vec::new();
     for (k, s) in &qs {
         let r = sources::indeed::search(app, k, s).await;
@@ -256,12 +301,53 @@ async fn scan(app: &AppHandle, custom_keyword: Option<String>) -> Vec<Job> {
     };
 
     if !fresh_to_notify.is_empty() && !state.muted.load(Ordering::SeqCst) {
+        // Notificação nativa no Windows / OS
         let (title, body) = if fresh_to_notify.len() == 1 {
             (format!("Nova vaga: {}", fresh_to_notify[0].title), format!("{} • {}", fresh_to_notify[0].company, fresh_to_notify[0].location))
         } else {
             (format!("{} novas vagas de seu interesse", fresh_to_notify.len()), fresh_to_notify.iter().take(3).map(|j| j.title.as_str()).collect::<Vec<_>>().join(" • "))
         };
         let _ = app.notification().builder().title(title).body(body).show();
+
+        // Notificações externas configuradas (Telegram / Discord)
+        let ext_cfg = state.external_settings.lock().unwrap().clone();
+        if ext_cfg.telegram_enabled && !ext_cfg.telegram_bot_token.is_empty() && !ext_cfg.telegram_chat_id.is_empty() {
+            let mut msg = format!("💼 <b>VagaFounder • {} Novas Vagas Encontradas!</b>\n\n", fresh_to_notify.len());
+            for j in fresh_to_notify.iter().take(5) {
+                let sal = j.salary.as_deref().unwrap_or("Salário a combinar");
+                msg.push_str(&format!(
+                    "🔹 <b>{}</b>\n🏢 <i>{}</i>\n📍 {}\n💵 {}\n🔗 <a href=\"{}\">Ver Vaga / Candidatar</a>\n\n",
+                    j.title, j.company, j.location, sal, j.url
+                ));
+            }
+            let client_c = client.clone();
+            let token = ext_cfg.telegram_bot_token.clone();
+            let chat_id = ext_cfg.telegram_chat_id.clone();
+            tokio::spawn(async move {
+                let _ = send_telegram_msg(&client_c, &token, &chat_id, &msg).await;
+            });
+        }
+
+        if ext_cfg.discord_enabled && !ext_cfg.discord_webhook_url.is_empty() {
+            let embeds: Vec<serde_json::Value> = fresh_to_notify.iter().take(5).map(|j| {
+                serde_json::json!({
+                    "title": j.title,
+                    "url": j.url,
+                    "color": 0x4f46e5,
+                    "fields": [
+                        { "name": "🏢 Empresa", "value": j.company, "inline": true },
+                        { "name": "📍 Local", "value": j.location, "inline": true },
+                        { "name": "💵 Salário", "value": j.salary.as_deref().unwrap_or("A combinar"), "inline": true },
+                        { "name": "🌐 Plataforma", "value": j.source.to_uppercase(), "inline": true }
+                    ]
+                })
+            }).collect();
+            let client_c = client.clone();
+            let wh = ext_cfg.discord_webhook_url.clone();
+            tokio::spawn(async move {
+                let _ = send_discord_msg(&client_c, &wh, "🔔 **VagaFounder: Novas Oportunidades!**", embeds).await;
+            });
+        }
     }
 
     *state.cached_jobs.lock().unwrap() = final_jobs.clone();
@@ -375,6 +461,76 @@ fn test_notification(app: AppHandle) -> Result<(), String> {
         .body("Configurações de avisos programáveis ativas! Você receberá alertas das vagas selecionadas.")
         .show()
         .map_err(|e| e.to_string())
+}
+
+async fn send_telegram_msg(client: &reqwest::Client, token: &str, chat_id: &str, text: &str) -> Result<(), String> {
+    let url = format!("https://api.telegram.org/bot{token}/sendMessage");
+    let payload = serde_json::json!({
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": false
+    });
+    let res = client.post(&url).json(&payload).send().await.map_err(|e| e.to_string())?;
+    if res.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("Telegram retornou status {}", res.status()))
+    }
+}
+
+async fn send_discord_msg(client: &reqwest::Client, webhook_url: &str, content: &str, embeds: Vec<serde_json::Value>) -> Result<(), String> {
+    let payload = serde_json::json!({
+        "content": content,
+        "embeds": embeds
+    });
+    let res = client.post(webhook_url).json(&payload).send().await.map_err(|e| e.to_string())?;
+    if res.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("Discord retornou status {}", res.status()))
+    }
+}
+
+#[tauri::command]
+fn get_external_notify_settings(state: State<'_, AppState>) -> ExternalNotifySettings {
+    state.external_settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn set_external_notify_settings(app: AppHandle, settings: ExternalNotifySettings, state: State<'_, AppState>) -> ExternalNotifySettings {
+    *state.external_settings.lock().unwrap() = settings.clone();
+    emit_status(&app);
+    settings
+}
+
+#[tauri::command]
+async fn test_external_notification(service: String, state: State<'_, AppState>) -> Result<String, String> {
+    let client = sources::client();
+    let cfg = state.external_settings.lock().unwrap().clone();
+    match service.to_lowercase().as_str() {
+        "telegram" => {
+            if cfg.telegram_bot_token.trim().is_empty() || cfg.telegram_chat_id.trim().is_empty() {
+                return Err("Token do Bot ou ID do Chat não foram preenchidos.".into());
+            }
+            let text = "💼 <b>VagaFounder</b>\n\n✅ <b>Teste de Conexão com Telegram Bem-sucedido!</b>\nVocê receberá os alertas de novas vagas aqui.";
+            send_telegram_msg(&client, &cfg.telegram_bot_token, &cfg.telegram_chat_id, text).await?;
+            Ok("Mensagem de teste enviada com sucesso para o Telegram!".into())
+        }
+        "discord" => {
+            if cfg.discord_webhook_url.trim().is_empty() {
+                return Err("URL do Webhook do Discord não foi preenchida.".into());
+            }
+            let embeds = vec![serde_json::json!({
+                "title": "💼 VagaFounder • Teste de Conexão",
+                "description": "✅ Webhook do Discord conectado com sucesso! As novas oportunidades aparecerão aqui.",
+                "color": 0x4f46e5
+            })];
+            send_discord_msg(&client, &cfg.discord_webhook_url, "🔔 **VagaFounder Conectado!**", embeds).await?;
+            Ok("Mensagem de teste enviada com sucesso para o Discord!".into())
+        }
+        _ => Err("Serviço de notificação não suportado.".into()),
+    }
 }
 
 #[tauri::command]
@@ -492,6 +648,7 @@ pub fn run() {
             notify_all_roles: AtomicBool::new(true),
             notify_roles: Mutex::new(Vec::new()),
             notify_keywords: Mutex::new(Vec::new()),
+            external_settings: Mutex::new(ExternalNotifySettings::default()),
             next_check_at: Mutex::new(None),
             last_check_at: Mutex::new(None),
             wake: Notify::new(),
@@ -507,6 +664,9 @@ pub fn run() {
             get_notification_settings,
             set_notification_settings,
             test_notification,
+            get_external_notify_settings,
+            set_external_notify_settings,
+            test_external_notification,
             get_filters,
             save_filter,
             delete_filter,

@@ -1,6 +1,10 @@
+pub mod catho;
 pub mod gupy;
 pub mod indeed;
+pub mod infojobs;
 pub mod linkedin;
+pub mod trabalhabrasil;
+pub mod vagas;
 
 use std::time::Duration;
 

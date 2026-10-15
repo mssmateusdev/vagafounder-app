@@ -10,7 +10,10 @@ import {
   Loader2, 
   AlertCircle,
   FileText,
-  Sparkles
+  Sparkles,
+  DollarSign,
+  Trophy,
+  Gift
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -27,6 +30,7 @@ interface JobDetailsModalProps {
   onToggleApplied: (jobId: string) => void;
   onOpenLink: (url: string) => void;
   formatLocation: (location: string, modality?: string) => string;
+  onSendToKanban?: (job: Job) => void;
 }
 
 export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
@@ -39,6 +43,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
   onToggleApplied,
   onOpenLink,
   formatLocation,
+  onSendToKanban,
 }) => {
   const [description, setDescription] = useState<string | null>(job?.description || null);
   const [isLoadingDesc, setIsLoadingDesc] = useState<boolean>(false);
@@ -223,6 +228,24 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Destaque de Salário e Benefícios Extraídos */}
+            {(job.salary || (job.benefits && job.benefits.length > 0)) && (
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                {job.salary && (
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-2.5 py-0.5 rounded-lg">
+                    <DollarSign size={12} className="stroke-[2.5]" />
+                    {job.salary}
+                  </span>
+                )}
+                {job.benefits && job.benefits.map((b, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
+                    <Gift size={11} className="text-indigo-600" />
+                    {b}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <button 
@@ -337,6 +360,17 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({
               <CheckCircle2 size={14} className={isApplied ? 'fill-emerald-100 text-emerald-600' : ''} />
               <span>{isApplied ? 'Candidatado' : 'Já me candidatei'}</span>
             </button>
+
+            {onSendToKanban && (
+              <button
+                onClick={() => onSendToKanban(job)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-all cursor-pointer"
+                title="Adicionar esta vaga ao seu Funil de Candidaturas (Kanban)"
+              >
+                <Trophy size={14} />
+                <span>Adicionar ao Funil</span>
+              </button>
+            )}
           </div>
 
           <button
