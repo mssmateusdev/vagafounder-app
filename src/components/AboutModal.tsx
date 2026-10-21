@@ -33,7 +33,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenL
 
           <div>
             <h2 className="text-lg font-bold text-white tracking-tight">VagaFounder Desktop</h2>
-            <p className="text-xs text-emerald-400 font-semibold">Versão 1.1.0 (Build Nativa Windows x64)</p>
+            <p className="text-xs text-emerald-400 font-semibold">Versão 1.1.1 (Build Nativa Windows x64)</p>
             <p className="text-[11px] text-slate-400 mt-1">por MateusDeveloper</p>
           </div>
 
