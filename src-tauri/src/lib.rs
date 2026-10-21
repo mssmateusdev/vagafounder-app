@@ -698,6 +698,27 @@ async fn get_job_description(app: AppHandle, id: String, _url: String, source: S
     Err("Fonte sem suporte a extração sob demanda.".into())
 }
 
+#[tauri::command]
+fn minimize_window(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.minimize().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_to_tray(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn exit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 fn initial_filters() -> Vec<Filter> {
     let loc = "Recife (até 80 km)";
     [
@@ -761,7 +782,10 @@ pub fn run() {
             save_filter,
             delete_filter,
             open_url,
-            get_job_description
+            get_job_description,
+            minimize_window,
+            hide_to_tray,
+            exit_app
         ])
         // Fechar a janela principal apenas a esconde na bandeja; "Sair" no tray encerra.
         .on_window_event(|window, event| {

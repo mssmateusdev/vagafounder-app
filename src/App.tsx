@@ -55,6 +55,11 @@ import type {
 } from './types';
 import { JobDetailsModal } from './components/JobDetailsModal';
 import { KanbanBoard } from './components/KanbanBoard';
+import { DesktopMenubar } from './components/DesktopMenubar';
+import { DesktopStatusBar } from './components/DesktopStatusBar';
+import { DesktopContextMenu, type ContextMenuState } from './components/DesktopContextMenu';
+import { ShortcutsModal } from './components/ShortcutsModal';
+import { AboutModal } from './components/AboutModal';
 
 const PRESET_NOTIFICATION_ROLES = [
   { id: 'Jovem Aprendiz', label: 'Jovem Aprendiz', desc: 'Vagas para primeiro emprego e aprendizado' },
@@ -135,6 +140,11 @@ export default function App() {
   const [activeSplitJob, setActiveSplitJob] = useState<Job | null>(null);
   const [focusedJobIndex, setFocusedJobIndex] = useState<number>(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Estados dos Componentes Desktop (Menubar, ContextMenu, Atalhos e Sobre)
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
+  const [isAboutOpen, setIsAboutOpen] = useState<boolean>(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   // Referência do input de busca para atalho Ctrl+K
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -377,6 +387,100 @@ export default function App() {
 
   const handleRefresh = () => {
     handleSearchWeb('');
+  };
+
+  // Abrir menu de contexto desktop nativo ao clicar com o botão direito na vaga
+  const handleContextMenu = (e: React.MouseEvent, job: Job) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      job,
+    });
+  };
+
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  // Copiar link da vaga para o clipboard
+  const handleCopyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Link da vaga copiado para a área de transferência! 📋');
+    } catch {
+      showToast('Não foi possível copiar o link.');
+    }
+  };
+
+  // Filtrar instantaneamente por empresa
+  const handleFilterCompany = (company: string) => {
+    setSearchQuery(company);
+    setCurrentPage(1);
+    showToast(`Filtrando vagas da empresa: ${company}`);
+  };
+
+  // Exportar vagas para CSV
+  const handleExportCSV = () => {
+    if (jobs.length === 0) {
+      showToast('Nenhuma vaga carregada para exportação.');
+      return;
+    }
+    const headers = ['ID', 'Título', 'Empresa', 'Localização', 'Modalidade', 'Fonte', 'Salário', 'Benefícios', 'Publicado Em', 'URL'];
+    const rows = jobs.map(j => [
+      `"${(j.id || '').replace(/"/g, '""')}"`,
+      `"${(j.title || '').replace(/"/g, '""')}"`,
+      `"${(j.company || '').replace(/"/g, '""')}"`,
+      `"${(j.location || '').replace(/"/g, '""')}"`,
+      `"${(j.modality || '').replace(/"/g, '""')}"`,
+      `"${(j.source || '').replace(/"/g, '""')}"`,
+      `"${(j.salary || '').replace(/"/g, '""')}"`,
+      `"${(j.benefits || []).join('; ').replace(/"/g, '""')}"`,
+      `"${(j.publishedAt || '').replace(/"/g, '""')}"`,
+      `"${(j.url || '').replace(/"/g, '""')}"`,
+    ]);
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `vagafounder_vagas_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('Exportação para CSV concluída com sucesso! 💾');
+  };
+
+  // Exportar vagas para JSON
+  const handleExportJSON = () => {
+    if (jobs.length === 0) {
+      showToast('Nenhuma vaga carregada para exportação.');
+      return;
+    }
+    const jsonStr = JSON.stringify(jobs, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `vagafounder_vagas_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('Exportação para JSON concluída com sucesso! 💾');
+  };
+
+  // Limpar cache local
+  const handleClearCache = () => {
+    localStorage.removeItem('vagafounder_favorites');
+    localStorage.removeItem('vagafounder_applied');
+    localStorage.removeItem('vagafounder_dismissed');
+    setFavorites([]);
+    setAppliedJobs([]);
+    setDismissedJobs([]);
+    showToast('Cache local e marcações limpos com sucesso!');
   };
 
   // Alternar pausa no monitoramento
@@ -832,11 +936,91 @@ export default function App() {
     }
   }, [viewMode, paginatedJobs]);
 
-  // Atalhos de teclado (Ctrl+K, Setas, Espaço, F, Enter, Esc)
+  // Impedir zoom com a roda do mouse (Ctrl + Wheel) e menu de contexto padrão de browser
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+      }
+    };
+    const handleGlobalContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('contextmenu', handleGlobalContextMenu);
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('contextmenu', handleGlobalContextMenu);
+    };
+  }, []);
+
+  // Atalhos de teclado Desktop Profissionais (F5, F1, Ctrl+K, Alt+1/2/3, Alt+T, Ctrl+B, Setas, Espaço, F, Enter, Esc)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      // F5 ou Ctrl+R: Sincronizar Vagas sem recarregar a janela HTML
+      if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r')) {
+        e.preventDefault();
+        handleRefresh();
+        showToast('Sincronizando vagas com as 7 plataformas...');
+        return;
+      }
+
+      // F1: Abrir Guia de Atalhos
+      if (e.key === 'F1') {
+        e.preventDefault();
+        setIsShortcutsOpen(prev => !prev);
+        return;
+      }
+
+      // Bloquear comportamentos indesejados de navegador (Imprimir, Ver Código-Fonte, Salvar Página)
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'p' || e.key.toLowerCase() === 'u' || e.key.toLowerCase() === 's')) {
+        e.preventDefault();
+        return;
+      }
+
+      // Bloquear zoom de página por teclado (Ctrl +, Ctrl -, Ctrl 0)
+      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
+        e.preventDefault();
+        return;
+      }
+
+      // Alt + 1, Alt + 2, Alt + 3: Alternar Modos de Visualização
+      if (e.altKey && e.key === '1') {
+        e.preventDefault();
+        setViewMode('table');
+        showToast('Modo Tabela ativado');
+        return;
+      }
+      if (e.altKey && e.key === '2') {
+        e.preventDefault();
+        setViewMode('cards');
+        showToast('Modo Cards ativado');
+        return;
+      }
+      if (e.altKey && e.key === '3') {
+        e.preventDefault();
+        setViewMode('split');
+        showToast('Modo Dividido (Split) ativado');
+        return;
+      }
+
+      // Alt + T: Alternar Tema Claro / Escuro
+      if (e.altKey && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        setIsDarkMode(prev => !prev);
+        return;
+      }
+
+      // Ctrl + B: Alternar Barra Lateral
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setIsSidebarCollapsed(prev => !prev);
+        return;
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -851,7 +1035,13 @@ export default function App() {
       }
 
       if (e.key === 'Escape') {
-        if (isDetailsModalOpen) {
+        if (contextMenu) {
+          setContextMenu(null);
+        } else if (isShortcutsOpen) {
+          setIsShortcutsOpen(false);
+        } else if (isAboutOpen) {
+          setIsAboutOpen(false);
+        } else if (isDetailsModalOpen) {
           handleCloseDetails();
         } else if (isInput) {
           (target as HTMLInputElement).blur();
@@ -894,7 +1084,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, paginatedJobs, focusedJobIndex, viewMode, isDetailsModalOpen]);
+  }, [activeTab, paginatedJobs, focusedJobIndex, viewMode, isDetailsModalOpen, contextMenu, isShortcutsOpen, isAboutOpen]);
 
   const nextCheckMinutes = useMemo(() => {
     if (!monitorStatus?.nextCheckAt) return null;
@@ -905,17 +1095,40 @@ export default function App() {
   }, [monitorStatus]);
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-discord-main font-sans text-slate-800 dark:text-discord-text antialiased overflow-hidden select-none transition-colors">
+    <div className="flex flex-col h-screen w-screen bg-slate-50 dark:bg-discord-main font-sans text-slate-800 dark:text-discord-text antialiased overflow-hidden select-none transition-colors">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-slate-900 dark:bg-discord-card text-white dark:text-discord-header rounded-xl shadow-2xl border border-slate-700 dark:border-discord-border animate-in slide-in-from-bottom duration-200">
+        <div className="fixed bottom-10 right-6 z-50 flex items-center gap-2.5 px-4 py-3 bg-slate-900 dark:bg-discord-card text-white dark:text-discord-header rounded-xl shadow-2xl border border-slate-700 dark:border-discord-border animate-in slide-in-from-bottom duration-200">
           <ExternalLink size={16} className="text-emerald-400 shrink-0" />
           <span className="text-xs font-semibold">{toastMessage}</span>
         </div>
       )}
 
-      {/* ---------------- SIDEBAR (Estilo Discord) ---------------- */}
-      <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-slate-900 dark:bg-discord-darkest flex flex-col justify-between shrink-0 shadow-2xl border-r border-slate-800 dark:border-discord-borderSubtle transition-all duration-300 ease-in-out z-20`}>
+      {/* ---------------- BARRA DE MENU DESKTOP NATIVA (Menubar) ---------------- */}
+      <DesktopMenubar
+        onSync={handleRefresh}
+        onExportCSV={handleExportCSV}
+        onExportJSON={handleExportJSON}
+        onClearCache={handleClearCache}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        isDarkMode={isDarkMode}
+        toggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        isSidebarCollapsed={isSidebarCollapsed}
+        setIsSidebarCollapsed={setIsSidebarCollapsed}
+        isPaused={monitorStatus?.paused ?? false}
+        togglePause={handleTogglePause}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onOpenAbout={() => setIsAboutOpen(true)}
+        isScanning={isLoading}
+      />
+
+      {/* ---------------- ÁREA DE TRABALHO PRINCIPAL (Sidebar + Dashboard) ---------------- */}
+      <div className="flex flex-1 min-h-0 overflow-hidden w-full">
+        {/* ---------------- SIDEBAR (Estilo Discord) ---------------- */}
+        <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-slate-900 dark:bg-discord-darkest flex flex-col justify-between shrink-0 shadow-2xl border-r border-slate-800 dark:border-discord-borderSubtle transition-all duration-300 ease-in-out z-20`}>
         <div>
           <div className="p-4 flex items-center justify-between border-b border-slate-800/80 dark:border-discord-borderSubtle">
             <div className="flex items-center gap-3 overflow-hidden">
@@ -1509,6 +1722,7 @@ export default function App() {
                               setActiveSplitJob(job);
                               setFocusedJobIndex(idx);
                             }}
+                            onContextMenu={(e) => handleContextMenu(e, job)}
                             className={`p-3 rounded-xl transition-all cursor-pointer flex flex-col gap-1.5 ${
                               isSelected 
                                 ? 'bg-indigo-50/80 dark:bg-discord-hover/90 border-2 border-indigo-600 dark:border-indigo-500 shadow-xs' 
@@ -1702,6 +1916,7 @@ export default function App() {
                       return (
                         <div 
                           key={job.id} 
+                          onContextMenu={(e) => handleContextMenu(e, job)}
                           className={`bg-white dark:bg-discord-card rounded-2xl border ${
                             isApplied ? 'border-emerald-300 dark:border-emerald-700 ring-1 ring-emerald-300/40' : 'border-slate-200/90 dark:border-discord-border'
                           } p-5 shadow-xs hover:shadow-md hover:dark:bg-discord-hover/30 transition-all flex flex-col justify-between group ${
@@ -1946,6 +2161,7 @@ export default function App() {
                           return (
                             <tr 
                               key={job.id} 
+                              onContextMenu={(e) => handleContextMenu(e, job)}
                               className={`hover:bg-slate-50/80 dark:hover:bg-discord-hover/40 transition-colors group ${
                                 isApplied ? 'bg-emerald-50/20 dark:bg-emerald-950/20' : ''
                               } ${isDismissed ? 'opacity-50 bg-slate-50 dark:bg-discord-input' : ''}`}
@@ -2596,6 +2812,49 @@ export default function App() {
           )}
         </main>
       </div>
+      </div>
+
+      {/* ---------------- BARRA DE STATUS DESKTOP INFERIOR (Status Bar) ---------------- */}
+      <DesktopStatusBar
+        monitorStatus={monitorStatus}
+        totalJobs={jobs.length}
+        kanbanCount={kanbanApps.length}
+        favoritesCount={favorites.length}
+        appliedCount={appliedJobs.length}
+        isScanning={isLoading}
+        nextCheckMinutes={nextCheckMinutes}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onSync={handleRefresh}
+      />
+
+      {/* ---------------- MENU DE CONTEXTO DESKTOP (Botão Direito) ---------------- */}
+      <DesktopContextMenu
+        menu={contextMenu}
+        onClose={handleCloseContextMenu}
+        isFavorite={contextMenu ? favorites.includes(contextMenu.job.id) : false}
+        isApplied={contextMenu ? appliedJobs.includes(contextMenu.job.id) : false}
+        onToggleFavorite={toggleFavorite}
+        onToggleApplied={toggleApplied}
+        onOpenLink={handleOpenLink}
+        onOpenDetails={handleOpenDetails}
+        onFilterCompany={handleFilterCompany}
+        onDismissJob={handleDismissJob}
+        onSendToKanban={handleSendToKanban}
+        onCopyLink={handleCopyLink}
+      />
+
+      {/* ---------------- MODAL DE ATALHOS DE TECLADO (F1) ---------------- */}
+      <ShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      {/* ---------------- MODAL SOBRE O VAGAFOUNDER ---------------- */}
+      <AboutModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+        onOpenLink={handleOpenLink}
+      />
 
       {/* ---------------- POP-UP / MODAL DE DETALHES DA VAGA ---------------- */}
       <JobDetailsModal

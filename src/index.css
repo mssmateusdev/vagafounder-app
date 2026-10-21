@@ -3,30 +3,81 @@
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply bg-slate-50 text-slate-900 m-0 p-0 font-sans;
+  :root {
+    --font-desktop: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
   }
+
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: var(--font-desktop);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900;
+  }
+
   .dark body {
-    background-color: #313338;
+    background-color: #1e1f22;
     color: #dbdee1;
   }
+
+  /* Impedir arrasto fantasma de imagens e elementos web */
+  img, svg, a, button {
+    -webkit-user-drag: none;
+    user-drag: none;
+  }
+
+  /* Permitir seleção de texto APENAS onde o usuário realmente precisa copiar */
+  input, textarea, [contenteditable="true"], .selectable-text {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    cursor: text;
+  }
 }
 
-/* Scrollbars personalizadas estilo Discord */
-.dark ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+/* Scrollbars Desktop Ultra-Discretas e Precisas */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.dark ::-webkit-scrollbar-track {
-  background: #2b2d31;
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: #1e1f22;
+  background: rgba(78, 80, 88, 0.6);
   border-radius: 4px;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: #111214;
+  background: rgba(148, 155, 164, 0.8);
+}
+
+/* Animação suave para pulsos de status desktop */
+@keyframes desktopPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.9); }
+}
+
+.desktop-pulse {
+  animation: desktopPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
